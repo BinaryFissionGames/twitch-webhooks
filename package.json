@@ -1,5 +1,5 @@
 {
-  "name": "twitch-webhooks",
+  "name": "@binaryfissiongames/twitch-webhooks",
   "version": "0.1.0",
   "description": "Library to abstract subscribing to the documented Twitch webhook API endpoints.",
   "main": "dist/index.js",

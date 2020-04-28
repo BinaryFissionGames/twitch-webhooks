@@ -1,0 +1,102 @@
+import {IncomingMessage} from 'http'
+
+class TwitchRequestError extends Error {
+    statusCode: number;
+    headers: object;
+    twitchError: string;
+    twitchMessage: string;
+
+    constructor(statusCode: number, headers: object, message: string, responseBody: object) {
+        super(message);
+        this.statusCode = statusCode;
+        this.headers = headers;
+        if (responseBody["error"]) {
+            this.twitchError = responseBody["error"];
+        }
+        if (responseBody["message"]) {
+            this.twitchMessage = responseBody["message"];
+        }
+    }
+}
+
+class UnauthorizedTwitchRequestError extends TwitchRequestError {
+    authenticateError: string;
+
+    constructor(headers: object, responseBody: object) {
+        super(401, headers, "OAuth token was rejected (after a refresh attempted).", responseBody);
+        let authHeader = headers["WWW-Authenticate"];
+        let headerParams = {};
+        authHeader.split(',').forEach((str) => {
+            let sides = str.split('=');
+            if (sides.length == 2) {
+                headerParams[sides[0].trim()] = sides[1].substring(1, sides[1].length - 1);
+            }
+        });
+
+        if (headerParams['error']) {
+            this.authenticateError = headerParams['error'];
+        }
+    }
+}
+
+
+
+class RateLimitHitTwitchRequestError extends TwitchRequestError {
+    refillRate: number;
+    limitReset: Date;
+
+    constructor(headers: object, responseBody: object) {
+        super(429, headers, "Rate limit hit; Wait for bucket to refill to make more requests!", responseBody);
+        this.refillRate = Number.parseInt(headers["ratelimit-limit"]);
+        //Note about this: It's probably fine to just pass the timestamp into the date constructor or Date.parse()
+        //However, the docs explicitly warn that this may vary between implementations and is not reliable,
+        //So I've taken to parsing it using a simple regex.
+        this.limitReset = unixTimestampToDate(headers["ratelimit-reset"]);
+        if(!this.limitReset) {
+            console.error("While creating rate limit error, couldn't parse timestamp!");
+            this.limitReset = new Date(0);
+        }
+    }
+}
+
+function createErrorFromResponse(res: IncomingMessage, body: string): TwitchRequestError | undefined {
+    if (Math.floor(res.statusCode / 100) == 2) {
+        return undefined;
+    }
+    let headers = {};
+    res.rawHeaders.forEach((val, index) => {
+        if (index % 2 == 1) return;
+        headers[val.toLowerCase()] = res.rawHeaders[index + 1];
+    });
+
+    let bodyJson = {};
+    try {
+        bodyJson = JSON.parse(body);
+    } catch (e) {
+        //ignore error - we're already handling an error!
+    }
+    switch (res.statusCode) {
+        case 401:
+            return new UnauthorizedTwitchRequestError(headers, bodyJson);
+        case 429:
+            return new RateLimitHitTwitchRequestError(headers, bodyJson);
+        default:
+            return new TwitchRequestError(res.statusCode, headers,
+                bodyJson['message'] ? bodyJson['message'] : 'Failed to make a twitch request!', bodyJson);
+    }
+}
+
+class SubscriptionDeniedError extends Error {
+    topic: string;
+    subscriptionUrl: string;
+    reason?: string;
+
+    constructor(topic: string, subscriptionUrl: string, reason?: string) {
+        super(`Subscription denied for topic ${topic}`);
+        this.topic = topic;
+        this.subscriptionUrl = subscriptionUrl;
+        this.reason = reason;
+    }
+}
+
+export {createErrorFromResponse, TwitchRequestError, RateLimitHitTwitchRequestError, UnauthorizedTwitchRequestError, SubscriptionDeniedError}

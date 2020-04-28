@@ -1,0 +1,8 @@
+# twitch-webhooks
+
+Library for subscribing to Twitch webhooks;
+
+TODO: 
+- Documentation (oops)
+- Better typing (enum types and all that for twitch events - need to research the endpoints in practice, since the docs are NOT clear.)
+- Figure out a way to integrate serialization into this library (persist webhooks between restarts)

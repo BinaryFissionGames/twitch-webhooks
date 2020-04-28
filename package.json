@@ -2,7 +2,7 @@
   "name": "twitch-webhooks",
   "version": "0.1.0",
   "description": "Library to abstract subscribing to the documented Twitch webhook API endpoints.",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "build-test": "tsc --project test.tsconfig.json",
     "test": "node -r dotenv/config dist/test.js dotenv_config_path=config.env",
@@ -11,6 +11,8 @@
   "keywords": ["twitch", "webhooks"],
   "author": "Brandon Johnson <BinaryFissionGames@gmail.com>",
   "license": "MIT",
+  "repository": "https://github.com/Denu8thell/twitch-webhooks.git",
+  "homepage": "https://github.com/Denu8thell/twitch-webhooks.git",
   "dependencies": {
     "@types/concat-stream": "^1.6.0",
     "@types/express": "^4.17.6",

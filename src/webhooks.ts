@@ -364,7 +364,7 @@ function doHubRequest(webhook: Webhook, hubParams: HubParams, oAuthToken: string
     let req = https.request(TWITCH_HUB_URL, {
         headers: {
             "Authorization": `Bearer ${oAuthToken}`,
-            "Client-ID": this.config.client_id,
+            "Client-ID": webhook.manager.config.client_id,
             "Content-Type": 'application/json',
             "Content-Length": paramJson.length
         },
@@ -382,9 +382,9 @@ function doHubRequest(webhook: Webhook, hubParams: HubParams, oAuthToken: string
             if (Math.floor(res.statusCode / 100) === 2) {
                 if (hubParams["hub.mode"] === 'subscribe') {
                     webhook.subscribed = false;
-                    this.webhooks.delete(callbackUrl);
+                    webhook.manager.webhooks.delete(callbackUrl);
                 } else {
-                    this.webhooks.set(callbackUrl, webhook);
+                    webhook.manager.webhooks.set(callbackUrl, webhook);
                 }
                 resolve();
             } else {
@@ -472,5 +472,6 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
 
 export {
     TwitchWebhookManager,
-    Webhook
+    Webhook,
+    WebhookOptions
 }

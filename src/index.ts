@@ -1,1 +1,1 @@
-export { TwitchWebhookManager } from "./webhooks"
+export { TwitchWebhookManager, Webhook, WebhookOptions } from "./webhooks"

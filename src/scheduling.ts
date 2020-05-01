@@ -25,7 +25,7 @@ interface WebhookRenewalScheduler {
 }
 
 class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
-    webhookURLToTimeout: Map<string, NodeJS.Timeout>;
+    webhookURLToTimeout: Map<string, NodeJS.Timeout> = new Map<string, NodeJS.Timeout>();
 
     addToScheduler(webhook: Webhook): void {
         let resubHandler = () => {

@@ -203,9 +203,10 @@ class TwitchWebhookManager {
         return webhook;
     }
 
-    public async addModeratorChangedEvent(config: WebhookOptions, user_id?: string): Promise<Webhook> {
+    public async addModeratorChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<Webhook> {
         let webhook = new Webhook(config, this);
         webhook.setParam("first", "1");
+        webhook.setParam("broadcaster_id", broadcaster_id);
 
         if (user_id) {
             webhook.setParam("user_id", user_id);
@@ -217,9 +218,10 @@ class TwitchWebhookManager {
         return webhook;
     }
 
-    public async addChannelBanChangedEvent(config: WebhookOptions, user_id?: string): Promise<Webhook> {
+    public async addChannelBanChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<Webhook> {
         let webhook = new Webhook(config, this);
         webhook.setParam("first", "1");
+        webhook.setParam("broadcaster_id", broadcaster_id);
 
         if (user_id) {
             webhook.setParam("user_id", user_id);

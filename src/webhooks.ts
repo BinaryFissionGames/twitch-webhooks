@@ -382,7 +382,7 @@ function doHubRequest(webhook: Webhook, hubParams: HubParams, oAuthToken: string
 
         res.on('end', async () => {
             if (Math.floor(res.statusCode / 100) === 2) {
-                if (hubParams["hub.mode"] === 'subscribe') {
+                if (hubParams["hub.mode"] !== 'subscribe') {
                     webhook.subscribed = false;
                     webhook.manager.webhooks.delete(callbackUrl);
                 } else {

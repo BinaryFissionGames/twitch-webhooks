@@ -468,7 +468,7 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
             if (req.header("X-Hub-Signature")) {
                 let callback_url = new URL(req.url, `https://${req.headers.host}`);
                 let splitPath = callback_url.pathname.split('/');
-                let lastPath = splitPath[splitPath.length];
+                let lastPath = splitPath[splitPath.length - 1];
                 let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
 
                 let secret: string;

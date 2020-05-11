@@ -90,6 +90,15 @@ class TwitchWebhookManager extends EventEmitter {
         }
     }
 
+    async init() : Promise<void> {
+        if(this.config.renewalScheduler){
+            let webhooks = await this.config.persistenceManager.getAllWebhooks();
+            for(let webhook of webhooks) {
+                this.config.renewalScheduler.addToScheduler(webhook);
+            }
+        }
+    }
+
     // Unsubs from all webhooks; Ends the renewal scheduler
     public async destroy() {
         if (this.renewalInterval) {
@@ -102,7 +111,7 @@ class TwitchWebhookManager extends EventEmitter {
             this.config.renewalScheduler = undefined;
         }
 
-        if(this.config.persistenceManager) {
+        if (this.config.persistenceManager) {
             await this.config.persistenceManager.destroy();
         }
     }
@@ -136,7 +145,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.UserFollows, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -152,7 +161,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.StreamChanged, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -168,7 +177,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.UserChanged, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -185,7 +194,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.ExtensionTransactionCreated, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -206,7 +215,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.ModeratorChange, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -227,7 +236,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.ChannelBanChange, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -256,7 +265,7 @@ class TwitchWebhookManager extends EventEmitter {
         let webhook = createWebhookPersistenceObject(this, WebhookType.Subscription, params, config);
 
         let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if(oldWebhook){
+        if (oldWebhook) {
             return oldWebhook.id;
         }
 
@@ -489,7 +498,6 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
         }
     };
 }
-
 
 
 export {

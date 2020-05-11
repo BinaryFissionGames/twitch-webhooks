@@ -321,7 +321,9 @@ class TwitchWebhookManager extends EventEmitter {
             let endpoint_path = getEndpointPath(this.config.base_path, Number(type));
             //Configure middleware
             app.use(endpoint_path, verification_middleware);
-            app.use(endpoint_path, express.urlencoded());
+            app.use(endpoint_path, express.urlencoded({
+                extended: false
+            }));
 
             app.post(endpoint_path, async (req, res) => {
                 let webhookId = getIdFromTypeAndParams(Number(type), new URL(req.url, `https://${req.headers.host}`).search);
@@ -458,7 +460,7 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
                 let callback_url = new URL(req.url, `https://${req.headers.host}`);
                 let splitPath = callback_url.pathname.split('/');
                 let lastPath = splitPath[splitPath.length];
-                let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath);
+                let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
 
                 let secret: string;
                 if (webhook) {

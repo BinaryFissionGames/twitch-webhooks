@@ -135,6 +135,11 @@ class TwitchWebhookManager extends EventEmitter {
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.UserFollows, params, config);
 
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
+
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
         return webhook.id;
@@ -145,6 +150,11 @@ class TwitchWebhookManager extends EventEmitter {
         params.set("user_id", user_id);
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.StreamChanged, params, config);
+
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
 
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
@@ -157,6 +167,11 @@ class TwitchWebhookManager extends EventEmitter {
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.UserChanged, params, config);
 
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
+
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true, user_id);
         return webhook.id;
@@ -168,6 +183,11 @@ class TwitchWebhookManager extends EventEmitter {
         params.set("first", "1");
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.ExtensionTransactionCreated, params, config);
+
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
 
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
@@ -185,6 +205,11 @@ class TwitchWebhookManager extends EventEmitter {
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.ModeratorChange, params, config);
 
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
+
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true, broadcaster_id);
         return webhook.id;
@@ -200,6 +225,11 @@ class TwitchWebhookManager extends EventEmitter {
         }
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.ChannelBanChange, params, config);
+
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
 
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true, broadcaster_id);
@@ -224,6 +254,11 @@ class TwitchWebhookManager extends EventEmitter {
         }
 
         let webhook = createWebhookPersistenceObject(this, WebhookType.Subscription, params, config);
+
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if(oldWebhook){
+            return oldWebhook.id;
+        }
 
         await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true, broadcaster_id);

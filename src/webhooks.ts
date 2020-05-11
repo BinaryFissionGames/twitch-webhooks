@@ -467,7 +467,10 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
             // and are not signed since it is not a notification payload.
             if (req.header("X-Hub-Signature")) {
                 let callback_url = new URL(req.url, `https://${req.headers.host}`);
+                console.log(callback_url);
+                console.log(callback_url.pathname);
                 let splitPath = callback_url.pathname.split('/');
+                console.log(splitPath);
                 let lastPath = splitPath[splitPath.length - 2];
                 let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
 

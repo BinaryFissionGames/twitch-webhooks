@@ -1,4 +1,5 @@
 import {IncomingMessage} from 'http'
+import {WebhookPersistenceObject} from "./persistence";
 
 class TwitchRequestError extends Error {
     statusCode: number;
@@ -87,14 +88,12 @@ function createErrorFromResponse(res: IncomingMessage, body: string): TwitchRequ
 }
 
 class SubscriptionDeniedError extends Error {
-    topic: string;
-    subscriptionUrl: string;
+    webhook: WebhookPersistenceObject;
     reason?: string;
 
-    constructor(topic: string, subscriptionUrl: string, reason?: string) {
-        super(`Subscription denied for topic ${topic}`);
-        this.topic = topic;
-        this.subscriptionUrl = subscriptionUrl;
+    constructor(webhook: WebhookPersistenceObject, reason?: string) {
+        super(`Subscription denied for webhook ${webhook.id}`);
+        this.webhook = webhook;
         this.reason = reason;
     }
 }

@@ -5,7 +5,8 @@
 * the deadline and twitch rate in order to better schedule renewals.
 * */
 
-import {Webhook} from "./webhooks";
+import {TwitchWebhookManager, WebhookId} from "./webhooks";
+import {WebhookPersistenceObject} from "./persistence";
 
 type SchedulerMetaData = {
     runInterval: number; // Number of seconds between each run call. Infinity means to never run it.
@@ -15,29 +16,39 @@ type SchedulerMetaData = {
 // If it needs to be renewed again, addToScheduler will be called again.
 // remove from scheduler should stop any renewal from occuring in the future.
 interface WebhookRenewalScheduler {
-    addToScheduler(webhook: Webhook): void; // Add webhook renewal to scheduler
-    removeFromScheduler(webhook: Webhook): void; // Remove webhook renewal from scheduler
+    setManager(manager: TwitchWebhookManager);
+    addToScheduler(webhook: WebhookPersistenceObject): void; // Add webhook renewal to scheduler
+    removeFromScheduler(webhook: WebhookId): void; // Remove webhook renewal from scheduler
     getMetaData(): SchedulerMetaData;
 
     run(): void; // Run the scheduler at a pre defined interval.
 
-    destroy(): void; //Stop all scheduling activities
+    destroy(): Promise<void>; //Stop all scheduling activities
 }
 
 class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
     webhookURLToTimeout: Map<string, NodeJS.Timeout> = new Map<string, NodeJS.Timeout>();
+    manager: TwitchWebhookManager;
 
-    addToScheduler(webhook: Webhook): void {
+    setManager(manager: TwitchWebhookManager) {
+        this.manager = manager;
+    }
+
+    addToScheduler(webhook: WebhookPersistenceObject): void {
         let resubHandler = () => {
-            webhook.manager.resubscribe(webhook)
-                .catch((e) => webhook.config.errorCallback(e));
-            webhook.computeTopicUrl();
-            this.webhookURLToTimeout.delete(webhook.computedTopicUrl)
+            //TODO: Flesh out error stuff for this
+            this.manager.resubscribePersistenceObject(webhook)
+                .catch((e) => this.manager.emit('error', e, webhook.id));
+            this.webhookURLToTimeout.delete(webhook.id);
         };
 
-        webhook.computeTopicUrl();
-        let timeout = setTimeout(resubHandler, (webhook.subscriptionEnd - Date.now()) * 750);
-        this.webhookURLToTimeout.set(webhook.computedTopicUrl, timeout);
+        let timeToResub = ((webhook.subscriptionEnd.getTime() - webhook.subscriptionStart.getTime()) - (Date.now() - webhook.subscriptionStart.getTime())) * 0.85;
+        if(timeToResub <= 0){
+            setImmediate(resubHandler);
+        }else{
+            let timeout = setTimeout(resubHandler, timeToResub);
+            this.webhookURLToTimeout.set(webhook.id, timeout);
+        }
     }
 
     getMetaData(): SchedulerMetaData {
@@ -46,15 +57,14 @@ class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
         };
     }
 
-    removeFromScheduler(webhook: Webhook): void {
-        webhook.computeTopicUrl();
-        clearTimeout(this.webhookURLToTimeout.get(webhook.computedTopicUrl));
-        this.webhookURLToTimeout.delete(webhook.computedTopicUrl);
+    removeFromScheduler(webhook: WebhookId): void {
+        clearTimeout(this.webhookURLToTimeout.get(webhook));
+        this.webhookURLToTimeout.delete(webhook);
     }
 
     run(): void {}
 
-    destroy(): void {
+    async destroy(): Promise<void> {
         this.webhookURLToTimeout.forEach((timeout) => {
             clearTimeout(timeout);
         });

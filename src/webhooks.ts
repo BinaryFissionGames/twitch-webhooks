@@ -6,30 +6,34 @@ import concat = require("concat-stream");
 import {createErrorFromResponse, SubscriptionDeniedError} from "./errors";
 import {EventEmitter} from "events";
 import {WebhookRenewalScheduler} from "./scheduling";
-import {WebhookPayload} from "./payload_types";
+import {
+    createWebhookPersistenceObject,
+    getIdFromTypeAndParams, MemoryBasedTwitchWebhookPersistenceManager,
+    TwitchWebhookPersistenceManager,
+    WebhookPersistenceObject
+} from "./persistence";
 
 
 type TwitchWebhookManagerConfig = {
     hostname: string, // Hostname. Used in computation of the callback URL that subscribes to events
     app: Application, // Express application to add REST endpoints to.
     client_id: string, // Client id associated with the OAuth token
+    getOAuthToken: GetOAuthTokenCallback, // Returns the OAuth token (wrapped in a promise; this is asynchronous). If userId is undefined, then it may be an application token or any user token.
+    refreshOAuthToken: RefreshOAuthTokenCallback, // Refreshes the OAuth token; Returns the updated OAuth token (wrapped in a promise; this is asynchronous). Takes failed oauth token as a parameter
     base_path?: string, // Base path for the webhook "namespace". The full path is computed as ${hostname}/${base_path}/${endpoint_name}. If not specified, the base_path is omitted
     secret?: string, // default secret to use for hub.secret. If none is provided, a cryptographically secure random string is constructed to be used.
     renewalScheduler?: WebhookRenewalScheduler; // Rescheduler; If none is provided, then webhooks will not be renewed.
+    persistenceManager?: TwitchWebhookPersistenceManager; // Persistence manager; If none is provided, an IN-MEMORY persistence manager will be used.
 }
 
-type ErrorCallback = (e: SubscriptionDeniedError) => void;
-type EventReceivedCallback = (msg: WebhookPayload) => void;
-type GetOAuthTokenCallback = () => Promise<string>;
-type RefreshOAuthTokenCallback = () => Promise<string>;
+type GetOAuthTokenCallback = (userId?: string) => Promise<string>;
+type RefreshOAuthTokenCallback = (token: string) => Promise<string>;
+
+type WebhookId = string;
 
 type WebhookOptions = {
-    errorCallback: ErrorCallback;
-    onReceivedCallback: EventReceivedCallback;
-    getOAuthToken: GetOAuthTokenCallback; // Returns the OAuth token (wrapped in a promise; this is asyncronous)
-    refreshOAuthToken: RefreshOAuthTokenCallback; // Refreshes the OAuth token; Returns the updated OAuth token (wrapped in a promise; this is asyncronous)
     secret?: string; // Secret for this webhook. Defaults to the TwitchWebhookManagerConfig's secret.
-    lease_seconds?: number; // Seconds to subscribe for this webhook, between 0 and 864000 (inc). Defaults to 864000
+    leaseSeconds?: number; // Seconds to subscribe for this webhook, between 0 and 864000 (inc). Defaults to 864000
 }
 
 type HubParams = {
@@ -71,64 +75,14 @@ WebhookTypeTopic.set(WebhookType.Subscription, "https://api.twitch.tv/helix/subs
 
 const TWITCH_HUB_URL = "https://api.twitch.tv/helix/webhooks/hub";
 
-//Represents a single subscription.
-class Webhook extends EventEmitter {
-    public manager: TwitchWebhookManager;
-    public type: WebhookType;
-    public computedTopicQueryParams: string = "";
-    public computedTopicUrl: string = "";
-    public subscribed: boolean = false;
-    public subscriptionEnd: number; // Unix timestamp for when this subscription will end
-    readonly config: WebhookOptions;
-    private paramsChanged: boolean = false;
-    private callbackUrlQueryParameters: Map<string, string> = new Map<string, string>();
-
-    constructor(config: WebhookOptions, manager: TwitchWebhookManager) {
-        super({captureRejections: true});
-        this.manager = manager;
-        config.lease_seconds = config.lease_seconds || 864000;
-        config.secret = config.secret || manager.config.secret;
-        this.config = config;
-    }
-
-    public computeTopicUrl(): void {
-        if (this.paramsChanged) {
-            let isFirst = true;
-            let topicParams = '';
-
-            //Note: These endpoints have the restriction that the query parameters must be sorted.
-            //Because of this, we sort them here. This is also useful for us, since it means that each
-            //set of query parameters will always be one string, regardless of how the parameters are added.
-            let sortedParams = Array.from(this.callbackUrlQueryParameters.keys()).sort();
-            for (let param_name of sortedParams) {
-                let val = this.callbackUrlQueryParameters.get(param_name);
-                topicParams += (isFirst ? '?' : '&') + `${param_name}=${encodeURIComponent(val)}`;
-                isFirst = false;
-            }
-
-            this.computedTopicQueryParams = topicParams;
-            this.computedTopicUrl = WebhookTypeTopic.get(this.type) + topicParams;
-            this.paramsChanged = false;
-        }
-    }
-
-    public setParam(param: string, val: string): void {
-        this.callbackUrlQueryParameters.set(param, val);
-        this.paramsChanged = true;
-    }
-
-    public deleteParam(param: string): boolean {
-        return this.callbackUrlQueryParameters.delete(param);
-    }
-}
-
-class TwitchWebhookManager {
+class TwitchWebhookManager extends EventEmitter {
     readonly config: TwitchWebhookManagerConfig;
-    readonly webhooks: Map<string, Webhook> = new Map<string, Webhook>(); // Map of end URL (including query parameters) to webhook
     renewalInterval: NodeJS.Timeout;
 
     constructor(config: TwitchWebhookManagerConfig) {
+        super({captureRejections: true});
         config.secret = config.secret || crypto.randomBytes(90).toString("hex"); // Note; the max length of this secret is 200; The default is 180 characters.
+        config.persistenceManager = config.persistenceManager || new MemoryBasedTwitchWebhookPersistenceManager();
         this.config = config;
         this.addWebhookEndpoints();
         if (config.renewalScheduler && config.renewalScheduler.getMetaData().runInterval !== Infinity) {
@@ -140,153 +94,184 @@ class TwitchWebhookManager {
     public async destroy() {
         if (this.renewalInterval) {
             clearInterval(this.renewalInterval);
+            this.renewalInterval = undefined;
         }
 
         if (this.config.renewalScheduler) {
-            this.config.renewalScheduler.destroy();
+            await this.config.renewalScheduler.destroy();
+            this.config.renewalScheduler = undefined;
         }
 
+        if(this.config.persistenceManager) {
+            await this.config.persistenceManager.destroy();
+        }
+    }
+
+    public async unsubFromAll() {
         let promises = [];
-        for (let webhook of Array.from(this.webhooks.values())) {
-            promises.push(this.unsubscribe(webhook));
+        let webhooks = await this.config.persistenceManager.getAllWebhooks();
+        for (let webhook of webhooks) {
+            promises.push(this.unsubscribePersistenceObject(webhook));
         }
         await Promise.all(promises);
     }
 
-    public async addUserFollowsSubscription(config: WebhookOptions, to_id?: string, from_id?: string): Promise<Webhook> {
+    public async addUserFollowsSubscription(config: WebhookOptions, to_id?: string, from_id?: string): Promise<WebhookId> {
         if (!to_id && !from_id) {
             throw new Error("to_id or from_id (or both) must be specified!");
         }
 
-        let webhook = new Webhook(config, this);
-        webhook.setParam("first", "1");
+        let params = new Map<string, string>();
+
+        params.set("first", "1");
 
         if (to_id) {
-            webhook.setParam("to_id", to_id);
+            params.set("to_id", to_id);
         }
 
         if (from_id) {
-            webhook.setParam("from_id", from_id);
+            params.set("from_id", from_id);
         }
 
-        webhook.type = WebhookType.UserFollows;
+        let webhook = createWebhookPersistenceObject(this, WebhookType.UserFollows, params, config);
 
+        await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
-        return webhook;
+        return webhook.id;
     }
 
-    public async addStreamChangedSubscription(config: WebhookOptions, user_id: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("user_id", user_id);
-        webhook.type = WebhookType.StreamChanged;
+    public async addStreamChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("user_id", user_id);
 
+        let webhook = createWebhookPersistenceObject(this, WebhookType.StreamChanged, params, config);
+
+        await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
-        return webhook;
+        return webhook.id;
     }
 
-    public async addUserChangedSubscription(config: WebhookOptions, user_id: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("id", user_id);
-        webhook.type = WebhookType.UserChanged;
+    public async addUserChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("id", user_id);
 
-        await this.changeSub(webhook, true);
-        return webhook;
+        let webhook = createWebhookPersistenceObject(this, WebhookType.UserChanged, params, config);
+
+        await this.config.persistenceManager.persistWebhook(webhook);
+        await this.changeSub(webhook, true, user_id);
+        return webhook.id;
     }
 
-    public async addExtensionTransactionCreatedSubscription(config: WebhookOptions, extension_id: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("extension_id", extension_id);
-        webhook.setParam("first", "1");
-        webhook.type = WebhookType.ExtensionTransactionCreated;
+    public async addExtensionTransactionCreatedSubscription(config: WebhookOptions, extension_id: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("extension_id", extension_id);
+        params.set("first", "1");
 
+        let webhook = createWebhookPersistenceObject(this, WebhookType.ExtensionTransactionCreated, params, config);
+
+        await this.config.persistenceManager.persistWebhook(webhook);
         await this.changeSub(webhook, true);
-        return webhook;
+        return webhook.id;
     }
 
-    public async addModeratorChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("first", "1");
-        webhook.setParam("broadcaster_id", broadcaster_id);
+    public async addModeratorChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("first", "1");
+        params.set("broadcaster_id", broadcaster_id);
 
         if (user_id) {
-            webhook.setParam("user_id", user_id);
+            params.set("user_id", user_id);
         }
 
-        webhook.type = WebhookType.ModeratorChange;
+        let webhook = createWebhookPersistenceObject(this, WebhookType.ModeratorChange, params, config);
 
-        await this.changeSub(webhook, true);
-        return webhook;
+        await this.config.persistenceManager.persistWebhook(webhook);
+        await this.changeSub(webhook, true, broadcaster_id);
+        return webhook.id;
     }
 
-    public async addChannelBanChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("first", "1");
-        webhook.setParam("broadcaster_id", broadcaster_id);
+    public async addChannelBanChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("first", "1");
+        params.set("broadcaster_id", broadcaster_id);
 
         if (user_id) {
-            webhook.setParam("user_id", user_id);
+            params.set("user_id", user_id);
         }
 
-        webhook.type = WebhookType.ModeratorChange;
+        let webhook = createWebhookPersistenceObject(this, WebhookType.ChannelBanChange, params, config);
 
-        await this.changeSub(webhook, true);
-        return webhook;
+        await this.config.persistenceManager.persistWebhook(webhook);
+        await this.changeSub(webhook, true, broadcaster_id);
+        return webhook.id;
     }
 
     public async addSubscriptionEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string,
-                                      gifter_id?: string, gifter_name?: string): Promise<Webhook> {
-        let webhook = new Webhook(config, this);
-        webhook.setParam("broadcaster_id", broadcaster_id);
-        webhook.setParam("first", "1");
+                                      gifter_id?: string, gifter_name?: string): Promise<WebhookId> {
+        let params = new Map<string, string>();
+        params.set("broadcaster_id", broadcaster_id);
+        params.set("first", "1");
         if (user_id) {
-            webhook.setParam("user_id", user_id);
+            params.set("user_id", user_id);
         }
 
         if (gifter_id) {
-            webhook.setParam("gifter_id", gifter_id);
+            params.set("gifter_id", gifter_id);
         }
 
         if (gifter_name) {
-            webhook.setParam("gifter_name", gifter_name);
+            params.set("gifter_name", gifter_name);
         }
 
-        webhook.type = WebhookType.Subscription;
+        let webhook = createWebhookPersistenceObject(this, WebhookType.Subscription, params, config);
 
-        await this.changeSub(webhook, true);
-        return webhook;
+        await this.config.persistenceManager.persistWebhook(webhook);
+        await this.changeSub(webhook, true, broadcaster_id);
+        return webhook.id;
     }
 
-    public async unsubscribe(webhook: Webhook): Promise<void> {
+    public async unsubscribe(webhookId: WebhookId): Promise<void> {
+        let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
+        this.unsubscribePersistenceObject(webhook);
+    }
+
+    public async unsubscribePersistenceObject(webhook: WebhookPersistenceObject): Promise<void> {
         await this.changeSub(webhook, false);
 
-        let callbackUrl = getCallbackUrl(webhook);
-        this.webhooks.delete(callbackUrl);
+        await this.config.persistenceManager.deleteWebhook(webhook.id);
 
         //Don't renew anymore
         if (this.config.renewalScheduler) {
-            this.config.renewalScheduler.removeFromScheduler(webhook);
+            this.config.renewalScheduler.removeFromScheduler(webhook.id);
         }
     }
 
-    public async resubscribe(webhook: Webhook): Promise<void> {
+    public async resubscribe(webhookId: WebhookId): Promise<void> {
+        //We do not need to check if the webhook is subscribed;
+        //If the webhook is subscribed already, it will simply be renewed.
+        let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
+        await this.changeSub(webhook, true);
+    }
+
+    public async resubscribePersistenceObject(webhook: WebhookPersistenceObject): Promise<void> {
         //We do not need to check if the webhook is subscribed;
         //If the webhook is subscribed already, it will simply be renewed.
         await this.changeSub(webhook, true);
     }
 
-    private async changeSub(webhook: Webhook, subscribe: boolean): Promise<void> {
-        webhook.computeTopicUrl();
-        let callbackUrl = getCallbackUrl(webhook);
+    private async changeSub(webhook: WebhookPersistenceObject, subscribe: boolean, userId?: string): Promise<void> {
+        let callbackUrl = getCallbackUrl(this, webhook);
         let hubParams: HubParams = {
             "hub.callback": callbackUrl,
             "hub.mode": subscribe ? 'subscribe' : 'unsubscribe',
-            "hub.topic": webhook.computedTopicUrl,
-            "hub.lease_seconds": webhook.config.lease_seconds,
-            "hub.secret": webhook.config.secret
+            "hub.topic": webhook.href,
+            "hub.lease_seconds": webhook.leaseSeconds,
+            "hub.secret": webhook.secret
         };
-        let token = await webhook.config.getOAuthToken();
+
+        let token = await this.config.getOAuthToken(userId);
         return new Promise((resolve, reject) => {
-            doHubRequest(webhook, hubParams, token, true, resolve, reject);
+            doHubRequest(webhook, this, hubParams, token, true, resolve, reject);
         });
     }
 
@@ -303,40 +288,41 @@ class TwitchWebhookManager {
             app.use(endpoint_path, verification_middleware);
             app.use(endpoint_path, express.urlencoded());
 
-            app.post(endpoint_path, (req, res) => {
-                let callback_url_str = `${this.config.hostname}${req.originalUrl}`;
-                let webhook = this.webhooks.get(callback_url_str);
+            app.post(endpoint_path, async (req, res) => {
+                let webhookId = getIdFromTypeAndParams(Number(type), new URL(req.url, `https://${req.headers.host}`).search);
+                let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
                 if (webhook) {
                     let msg = req.body;
                     res.status(200);
                     res.end();
-                    //Schedule the callback to run ASAP.
-                    setImmediate(() => webhook.config.onReceivedCallback(msg));
+
+                    this.emit('message', type, webhookId, msg);
                 } else {
                     res.status(404);
                     console.error(`Got POST for unknown webhook URL: ${req.originalUrl}`);
                 }
             });
 
-            app.get(endpoint_path, (req, res) => {
+            app.get(endpoint_path, async (req, res) => {
                 let originalUrl = new URL(req.originalUrl, this.config.hostname);
                 let topicURL = new URL(decodeURIComponent(originalUrl.searchParams.get("hub.topic")));
-                let callback_url_str = `${this.config.hostname}${endpoint_path}${topicURL.search}`;
-                let webhook = this.webhooks.get(callback_url_str);
+                let webhookId = getIdFromTypeAndParams(Number(type), topicURL.search);
+                let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
 
                 if (webhook) {
                     if (!originalUrl.searchParams.get("hub.mode") || originalUrl.searchParams.get("hub.mode") === "denied") {
                         res.end();
-                        setImmediate(() =>
-                            webhook.config.errorCallback(new SubscriptionDeniedError(originalUrl.searchParams.get("hub.topic"),
-                                callback_url_str, originalUrl.searchParams.get("hub.reason"))));
+                        await this.config.persistenceManager.deleteWebhook(webhookId);
+                        this.emit('error', new SubscriptionDeniedError(webhook, originalUrl.searchParams.get("hub.reason")));
                         return;
                     }
 
+                    webhook.subscriptionStart = new Date();
+
                     if (originalUrl.searchParams.get("hub.lease_seconds")) {
-                        webhook.subscriptionEnd = Date.now() + parseInt(originalUrl.searchParams.get("hub.lease_seconds"));
+                        webhook.subscriptionEnd = new Date(webhook.subscriptionStart.getTime() + parseInt(originalUrl.searchParams.get("hub.lease_seconds")) * 1000);
                     } else {
-                        webhook.subscriptionEnd = Date.now() + webhook.config.lease_seconds; // Assume lease seconds we sent is respected.
+                        webhook.subscriptionEnd = new Date(Date.now() + webhook.leaseSeconds * 1000); // Assume lease seconds we sent is respected.
                     }
 
                     webhook.subscribed = true;
@@ -344,13 +330,14 @@ class TwitchWebhookManager {
                     res.status(200);
                     res.end(originalUrl.searchParams.get("hub.challenge"));
 
-                    webhook.emit("subscribed");
+                    await this.config.persistenceManager.saveWebhook(webhook);
+                    this.emit("subscribed", webhookId);
 
                     if (this.config.renewalScheduler) {
                         this.config.renewalScheduler.addToScheduler(webhook);
                     }
                 } else {
-                    console.error(`Got GET for unknown webhook URL: ${callback_url_str}`);
+                    console.error(`Got GET for unknown webhook URL: ${topicURL.href}`);
                     res.status(404);
                     res.end();
                 }
@@ -360,13 +347,12 @@ class TwitchWebhookManager {
 }
 
 //Do a request to the Twitch WebSub hub.
-function doHubRequest(webhook: Webhook, hubParams: HubParams, oAuthToken: string, refreshOnFail: boolean, resolve: () => void, reject: (e: Error) => void) {
+function doHubRequest(webhook: WebhookPersistenceObject, manager: TwitchWebhookManager, hubParams: HubParams, oAuthToken: string, refreshOnFail: boolean, resolve: () => void, reject: (e: Error) => void) {
     let paramJson = Buffer.from(JSON.stringify(hubParams), 'utf8');
-    let callbackUrl = getCallbackUrl(webhook);
     let req = https.request(TWITCH_HUB_URL, {
         headers: {
             "Authorization": `Bearer ${oAuthToken}`,
-            "Client-ID": webhook.manager.config.client_id,
+            "Client-ID": manager.config.client_id,
             "Content-Type": 'application/json',
             "Content-Length": paramJson.length
         },
@@ -382,18 +368,12 @@ function doHubRequest(webhook: Webhook, hubParams: HubParams, oAuthToken: string
 
         res.on('end', async () => {
             if (Math.floor(res.statusCode / 100) === 2) {
-                if (hubParams["hub.mode"] !== 'subscribe') {
-                    webhook.subscribed = false;
-                    webhook.manager.webhooks.delete(callbackUrl);
-                } else {
-                    webhook.manager.webhooks.set(callbackUrl, webhook);
-                }
                 resolve();
             } else {
                 if (refreshOnFail) {
-                    let newToken: string = await webhook.config.refreshOAuthToken();
+                    let newToken: string = await manager.config.refreshOAuthToken(oAuthToken);
                     //Try once more with the new token, don't refresh this time.
-                    doHubRequest(webhook, hubParams, newToken, false, resolve, reject);
+                    doHubRequest(webhook, manager, hubParams, newToken, false, resolve, reject);
                 } else {
                     reject(createErrorFromResponse(res, body));
                 }
@@ -420,14 +400,13 @@ function getEndpointPath(basePath: string, webhookType: WebhookType): string {
     return `${normalizedBasePath}/${WebhookTypeEndpoint.get(Number(webhookType))}`;
 }
 
-function getCallbackUrl(webhook: Webhook): string {
-    webhook.computeTopicUrl();
-    return webhook.manager.config.hostname +
-        getEndpointPath(webhook.manager.config.base_path, webhook.type) + webhook.computedTopicQueryParams;
+function getCallbackUrl(manager: TwitchWebhookManager, webhook: WebhookPersistenceObject): string {
+    return manager.config.hostname +
+        getEndpointPath(manager.config.base_path, webhook.type) + new URL(webhook.href).search;
 }
 
 function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
-    return function verificationMiddleware(req, res, next) {
+    return async function verificationMiddleware(req, res, next) {
         // We take care of the JSON body parsing here; This is a side effect of how middleware and streams work,
         // so we can't just use the json body parsing middleware...
         if (req.header("content-type") && req.header("content-type").includes('application/json')) {
@@ -441,16 +420,18 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
             // GET requests are simply to validate the publishing was correct,
             // and are not signed since it is not a notification payload.
             if (req.header("X-Hub-Signature")) {
-                let callback_url = new URL(req.originalUrl, twitchWebhookManager.config.hostname);
-                let webhook = twitchWebhookManager.webhooks.get(callback_url.href);
+                let callback_url = new URL(req.url, `https://${req.headers.host}`);
+                let splitPath = callback_url.pathname.split('/');
+                let lastPath = splitPath[splitPath.length];
+                let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath);
+
                 let secret: string;
                 if (webhook) {
-                    secret = webhook.config.secret;
+                    secret = webhook.secret;
                 } else {
                     secret = twitchWebhookManager.config.secret;
                 }
 
-                //TODO: Possibly support some other algorithms? (sha1, sha384, sha512 are recognized in the spec)
                 req.pipe(crypto.createHmac("sha256", secret))
                     .pipe(concat((data) => {
                         if (data.toString("hex") === req.header("X-Hub-Signature").split('=')[1]) {
@@ -472,8 +453,15 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
     };
 }
 
+
+
 export {
     TwitchWebhookManager,
-    Webhook,
-    WebhookOptions
+    WebhookTypeEndpoint,
+    WebhookTypeTopic,
+    WebhookOptions,
+    WebhookType,
+    WebhookId,
+    GetOAuthTokenCallback,
+    RefreshOAuthTokenCallback
 }

@@ -454,49 +454,48 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
     return async function verificationMiddleware(req, res, next) {
         // We take care of the JSON body parsing here; This is a side effect of how middleware and streams work,
         // so we can't just use the json body parsing middleware...
-        if (req.header("content-type") && req.header("content-type").includes('application/json')) {
-            req.pipe(concat((data) => {
-                req.body = JSON.parse(data.toString("utf8"));
-            }));
-        }
+        req.pipe(concat(async (body) => {
+            if (req.header("content-type") && req.header("content-type").includes('application/json')) {
+                req.body = JSON.parse(body.toString("utf8"));
+            }
 
-        if (req.method == 'POST') {
-            // Only POST requests matter for secret validation;
-            // GET requests are simply to validate the publishing was correct,
-            // and are not signed since it is not a notification payload.
-            if (req.header("X-Hub-Signature")) {
-                let callback_url = new URL(req.originalUrl, `https://${req.headers.host}`);
-                let splitPath = callback_url.pathname.split('/');
-                let lastPath = splitPath[splitPath.length - 1];
-                let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
+            if (req.method == 'POST') {
+                // Only POST requests matter for secret validation;
+                // GET requests are simply to validate the publishing was correct,
+                // and are not signed since it is not a notification payload.
+                if (req.header("X-Hub-Signature")) {
+                    let callback_url = new URL(req.originalUrl, `https://${req.headers.host}`);
+                    let splitPath = callback_url.pathname.split('/');
+                    let lastPath = splitPath[splitPath.length - 1];
+                    let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
 
-                let secret: string;
-                if (webhook) {
-                    secret = webhook.secret;
+                    let secret: string;
+                    if (webhook) {
+                        secret = webhook.secret;
+                    } else {
+                        console.error(`Webhook ${lastPath + callback_url.search} not found.`);
+                        res.sendStatus(404);
+                        res.end();
+                    }
+
+                    let digest = crypto.createHmac('sha256', secret).update(body).digest('hex');
+
+                    if (digest === req.header("X-Hub-Signature").split('=')[1]) {
+                        next();
+                    } else {
+                        console.error("Request gave bad X-Hub-Signature; Rejecting request.");
+                        res.sendStatus(400);
+                        res.end();
+                    }
                 } else {
-                    console.error(`Webhook ${lastPath + callback_url.search} not found.`);
-                    res.sendStatus(404);
+                    console.error("Request had no X-Hub-Signature header; Rejecting request.");
+                    res.sendStatus(400);
                     res.end();
                 }
-
-                req.pipe(crypto.createHmac("sha256", secret))
-                    .pipe(concat((data) => {
-                        if (data.toString("hex") === req.header("X-Hub-Signature").split('=')[1]) {
-                            next();
-                        } else {
-                            console.error("Request gave bad X-Hub-Signature; Rejecting request.");
-                            res.sendStatus(400);
-                            res.end();
-                        }
-                    }));
             } else {
-                console.error("Request had no X-Hub-Signature header; Rejecting request.");
-                res.sendStatus(400);
-                res.end();
+                next();
             }
-        } else {
-            next();
-        }
+        }));
     };
 }
 

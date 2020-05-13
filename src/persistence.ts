@@ -6,6 +6,7 @@ import {
     WebhookTypeEndpoint,
     WebhookTypeTopic
 } from "./webhooks";
+import * as crypto from "crypto";
 
 type WebhookPersistenceObject = {
     id: WebhookId,
@@ -58,12 +59,15 @@ class MemoryBasedTwitchWebhookPersistenceManager implements TwitchWebhookPersist
 function createWebhookPersistenceObject(manager: TwitchWebhookManager, type: WebhookType, params: Map<string, string>,
                                         options: WebhookOptions) : WebhookPersistenceObject{
     let paramString = computeTopicParamString(params);
+    let secret =  options.secret || manager.config.secret;
+    let href = WebhookTypeTopic.get(type) + paramString;
+    let hashedSecret = crypto.createHmac('sha256', secret).update(href).digest('hex');
     return {
         id: WebhookTypeEndpoint.get(type) + paramString,
         type: type,
-        href: WebhookTypeTopic.get(type) + paramString,
+        href: href,
         subscribed: false,
-        secret: options.secret || manager.config.secret,
+        secret: hashedSecret,
         leaseSeconds: options.leaseSeconds || 864000
     }
 }

@@ -474,7 +474,9 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
                 if (webhook) {
                     secret = webhook.secret;
                 } else {
-                    secret = twitchWebhookManager.config.secret;
+                    console.error(`Webhook ${lastPath + callback_url.search} not found.`);
+                    res.sendStatus(404);
+                    res.end();
                 }
 
                 req.pipe(crypto.createHmac("sha256", secret))

@@ -335,7 +335,7 @@ class TwitchWebhookManager extends EventEmitter {
             }));
 
             app.post(endpoint_path, async (req, res) => {
-                let webhookId = getIdFromTypeAndParams(Number(type), new URL(req.url, `https://${req.headers.host}`).search);
+                let webhookId = getIdFromTypeAndParams(Number(type), new URL(req.originalUrl, `https://${req.headers.host}`).search);
                 let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
                 if (webhook) {
                     let msg = req.body;
@@ -447,8 +447,7 @@ function getEndpointPath(basePath: string, webhookType: WebhookType): string {
 }
 
 function getCallbackUrl(manager: TwitchWebhookManager, webhook: WebhookPersistenceObject): string {
-    return manager.config.hostname +
-        getEndpointPath(manager.config.base_path, webhook.type) + new URL(webhook.href).search;
+    return manager.config.hostname + getEndpointPath(manager.config.base_path, webhook.type) + new URL(webhook.href).search;
 }
 
 function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
@@ -466,12 +465,9 @@ function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
             // GET requests are simply to validate the publishing was correct,
             // and are not signed since it is not a notification payload.
             if (req.header("X-Hub-Signature")) {
-                let callback_url = new URL(req.url, `https://${req.headers.host}`);
-                console.log(callback_url);
-                console.log(callback_url.pathname);
+                let callback_url = new URL(req.originalUrl, `https://${req.headers.host}`);
                 let splitPath = callback_url.pathname.split('/');
-                console.log(splitPath);
-                let lastPath = splitPath[splitPath.length - 2];
+                let lastPath = splitPath[splitPath.length - 1];
                 let webhook = await twitchWebhookManager.config.persistenceManager.getWebhookById(lastPath + callback_url.search);
 
                 let secret: string;

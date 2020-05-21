@@ -24,6 +24,7 @@ type TwitchWebhookManagerConfig = {
     secret?: string, // default secret to use for hub.secret. If none is provided, a cryptographically secure random string is constructed to be used.
     renewalScheduler?: WebhookRenewalScheduler; // Rescheduler; If none is provided, then webhooks will not be renewed.
     persistenceManager?: TwitchWebhookPersistenceManager; // Persistence manager; If none is provided, an IN-MEMORY persistence manager will be used.
+    hubUrl?: string; // Configurable hub URL - useful for testing with a mocked hub. Defaults to twitch's actual hub URL
 }
 
 type TwitchWebhookManagerConfig_Internal = {
@@ -36,6 +37,7 @@ type TwitchWebhookManagerConfig_Internal = {
     secret: string, // default secret to use for hub.secret. If none is provided, a cryptographically secure random string is constructed to be used.
     renewalScheduler?: WebhookRenewalScheduler; // Rescheduler; If none is provided, then webhooks will not be renewed.
     persistenceManager: TwitchWebhookPersistenceManager; // Persistence manager; If none is provided, an IN-MEMORY persistence manager will be used.
+    hubUrl: string
 }
 
 type GetOAuthTokenCallback = (userId?: string) => Promise<string>;
@@ -95,7 +97,8 @@ class TwitchWebhookManager extends EventEmitter {
         super({captureRejections: true});
         this.config = Object.assign({
             secret: crypto.randomBytes(90).toString("hex"), // Note; the max length of this secret is 200; The default is 180 characters.
-            persistenceManager: new MemoryBasedTwitchWebhookPersistenceManager()
+            persistenceManager: new MemoryBasedTwitchWebhookPersistenceManager(),
+            hubUrl: TWITCH_HUB_URL
         }, config);
 
         this.addWebhookEndpoints();
@@ -421,7 +424,7 @@ class TwitchWebhookManager extends EventEmitter {
 //Do a request to the Twitch WebSub hub.
 function doHubRequest(webhook: WebhookPersistenceObject, manager: TwitchWebhookManager, hubParams: HubParams, oAuthToken: string, refreshOnFail: boolean, resolve: () => void, reject: (e: Error) => void) {
     let paramJson = Buffer.from(JSON.stringify(hubParams), 'utf8');
-    let req = https.request(TWITCH_HUB_URL, {
+    let req = https.request(manager.config.hubUrl, {
         headers: {
             "Authorization": `Bearer ${oAuthToken}`,
             "Client-ID": manager.config.client_id,

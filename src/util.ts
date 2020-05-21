@@ -3,7 +3,7 @@ const TIMESTAMP_REGEX = /^(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)\.(\d+)Z$/;
 //Parses date from unix timestamp; Returns undefined if the date cannot be parsed.
 function unixTimestampToDate(timestamp: string) : Date | undefined {
     let match = TIMESTAMP_REGEX.exec(timestamp);
-    if (match) {
+    if (match && match.groups) {
         let year = parseInt(match.groups[1]);
         let month = parseInt(match.groups[2]);
         let day = parseInt(match.groups[3]);

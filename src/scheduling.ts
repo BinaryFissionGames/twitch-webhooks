@@ -16,7 +16,8 @@ type SchedulerMetaData = {
 // If it needs to be renewed again, addToScheduler will be called again.
 // remove from scheduler should stop any renewal from occuring in the future.
 interface WebhookRenewalScheduler {
-    setManager(manager: TwitchWebhookManager);
+    setManager(manager: TwitchWebhookManager): void;
+
     addToScheduler(webhook: WebhookPersistenceObject): void; // Add webhook renewal to scheduler
     removeFromScheduler(webhook: WebhookId): void; // Remove webhook renewal from scheduler
     getMetaData(): SchedulerMetaData;
@@ -42,10 +43,13 @@ class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
             this.webhookURLToTimeout.delete(webhook.id);
         };
 
-        let timeToResub = ((webhook.subscriptionEnd.getTime() - webhook.subscriptionStart.getTime()) - (Date.now() - webhook.subscriptionStart.getTime())) * 0.85;
-        if(timeToResub <= 0){
+        // Note about types here; If subscribed = true (that is, we are adding it to this scheduler),
+        // then the subscription start and end MUST be defined.
+        //TODO? Might want to find a way to enforce this through the type system.
+        let timeToResub = (((<Date>webhook.subscriptionEnd).getTime() - (<Date>webhook.subscriptionStart).getTime()) - (Date.now() - (<Date>webhook.subscriptionStart).getTime())) * 0.85;
+        if (timeToResub <= 0) {
             setImmediate(resubHandler);
-        }else{
+        } else {
             let timeout = setTimeout(resubHandler, timeToResub);
             this.webhookURLToTimeout.set(webhook.id, timeout);
         }
@@ -58,11 +62,14 @@ class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
     }
 
     removeFromScheduler(webhook: WebhookId): void {
-        clearTimeout(this.webhookURLToTimeout.get(webhook));
+        if (this.webhookURLToTimeout.get(webhook)) {
+            clearTimeout(<NodeJS.Timeout>this.webhookURLToTimeout.get(webhook));
+        }
         this.webhookURLToTimeout.delete(webhook);
     }
 
-    run(): void {}
+    run(): void {
+    }
 
     async destroy(): Promise<void> {
         this.webhookURLToTimeout.forEach((timeout) => {

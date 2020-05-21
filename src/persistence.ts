@@ -24,7 +24,7 @@ interface TwitchWebhookPersistenceManager {
     saveWebhook(webhook: WebhookPersistenceObject) : Promise<void>;
     deleteWebhook(webhookId: WebhookId) : Promise<void>;
     getAllWebhooks() : Promise<WebhookPersistenceObject[]>;
-    getWebhookById(webhookId: WebhookId) : Promise<WebhookPersistenceObject>;
+    getWebhookById(webhookId: WebhookId) : Promise<WebhookPersistenceObject | undefined>;
     destroy(): Promise<void>;
 }
 
@@ -61,7 +61,7 @@ function createWebhookPersistenceObject(manager: TwitchWebhookManager, type: Web
     let paramString = computeTopicParamString(params);
     let secret =  options.secret || manager.config.secret;
     let href = WebhookTypeTopic.get(type) + paramString;
-    let hashedSecret = crypto.createHmac('sha256', secret).update(href).digest('hex');
+    let hashedSecret = crypto.createHmac('sha256', <string>secret).update(href).digest('hex');
     return {
         id: WebhookTypeEndpoint.get(type) + paramString,
         type: type,
@@ -86,7 +86,7 @@ function computeTopicParamString(callbackUrlQueryParameters: Map<string, string>
     let sortedParams = Array.from(callbackUrlQueryParameters.keys()).sort();
     for (let param_name of sortedParams) {
         let val = callbackUrlQueryParameters.get(param_name);
-        topicParams += (isFirst ? '?' : '&') + `${param_name}=${encodeURIComponent(val)}`;
+        topicParams += (isFirst ? '?' : '&') + `${param_name}=${encodeURIComponent(<string>val)}`;
         isFirst = false;
     }
     return topicParams;

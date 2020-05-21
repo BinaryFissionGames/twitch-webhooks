@@ -3,11 +3,11 @@ import {WebhookPersistenceObject} from "./persistence";
 
 class TwitchRequestError extends Error {
     statusCode: number;
-    headers: object;
+    headers: { [key: string]: any };
     twitchError: string;
     twitchMessage: string;
 
-    constructor(statusCode: number, headers: object, message: string, responseBody: object) {
+    constructor(statusCode: number, headers: { [key: string]: any }, message: string, responseBody: { [key: string]: any }) {
         super(message);
         this.statusCode = statusCode;
         this.headers = headers;
@@ -23,11 +23,11 @@ class TwitchRequestError extends Error {
 class UnauthorizedTwitchRequestError extends TwitchRequestError {
     authenticateError: string;
 
-    constructor(headers: object, responseBody: object) {
+    constructor(headers: { [key: string]: any }, responseBody: { [key: string]: any }) {
         super(401, headers, "OAuth token was rejected (after a refresh attempted).", responseBody);
         let authHeader = headers["WWW-Authenticate"];
-        let headerParams = {};
-        authHeader.split(',').forEach((str) => {
+        let headerParams: any = {};
+        authHeader.split(',').forEach((str: string) => {
             let sides = str.split('=');
             if (sides.length == 2) {
                 headerParams[sides[0].trim()] = sides[1].substring(1, sides[1].length - 1);
@@ -41,19 +41,15 @@ class UnauthorizedTwitchRequestError extends TwitchRequestError {
 }
 
 
-
 class RateLimitHitTwitchRequestError extends TwitchRequestError {
     refillRate: number;
     limitReset: Date;
 
-    constructor(headers: object, responseBody: object) {
+    constructor(headers: { [key: string]: any }, responseBody: { [key: string]: any }) {
         super(429, headers, "Rate limit hit; Wait for bucket to refill to make more requests!", responseBody);
         this.refillRate = Number.parseInt(headers["ratelimit-limit"]);
-        //Note about this: It's probably fine to just pass the timestamp into the date constructor or Date.parse()
-        //However, the docs explicitly warn that this may vary between implementations and is not reliable,
-        //So I've taken to parsing it using a simple regex.
-        this.limitReset = unixTimestampToDate(headers["ratelimit-reset"]);
-        if(!this.limitReset) {
+        this.limitReset = unixTimestampToDate(headers["ratelimit-reset"]) || new Date(0);
+        if (!this.limitReset) {
             console.error("While creating rate limit error, couldn't parse timestamp!");
             this.limitReset = new Date(0);
         }
@@ -61,16 +57,16 @@ class RateLimitHitTwitchRequestError extends TwitchRequestError {
 }
 
 function createErrorFromResponse(res: IncomingMessage, body: string): TwitchRequestError | undefined {
-    if (Math.floor(res.statusCode / 100) == 2) {
+    if (res.statusCode && Math.floor(res.statusCode / 100) == 2) {
         return undefined;
     }
-    let headers = {};
+    let headers: { [key: string]: string } = {};
     res.rawHeaders.forEach((val, index) => {
         if (index % 2 == 1) return;
         headers[val.toLowerCase()] = res.rawHeaders[index + 1];
     });
 
-    let bodyJson = {};
+    let bodyJson: { [key: string]: string } = {};
     try {
         bodyJson = JSON.parse(body);
     } catch (e) {
@@ -82,8 +78,8 @@ function createErrorFromResponse(res: IncomingMessage, body: string): TwitchRequ
         case 429:
             return new RateLimitHitTwitchRequestError(headers, bodyJson);
         default:
-            return new TwitchRequestError(res.statusCode, headers,
-                bodyJson['message'] ? bodyJson['message'] : 'Failed to make a twitch request!', bodyJson);
+            return new TwitchRequestError(res.statusCode || 0, headers,
+                bodyJson['message'] || 'Failed to make a twitch request!', bodyJson);
     }
 }
 
@@ -98,4 +94,10 @@ class SubscriptionDeniedError extends Error {
     }
 }
 
-export {createErrorFromResponse, TwitchRequestError, RateLimitHitTwitchRequestError, UnauthorizedTwitchRequestError, SubscriptionDeniedError}
+export {
+    createErrorFromResponse,
+    TwitchRequestError,
+    RateLimitHitTwitchRequestError,
+    UnauthorizedTwitchRequestError,
+    SubscriptionDeniedError
+}

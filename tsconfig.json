@@ -3,10 +3,12 @@
     "module": "commonjs",
     "target": "es5",
     "declaration": true,
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "strictNullChecks": true,
+    "noImplicitAny": true
   },
   "exclude": [
-    "src/test.ts"
+    "src/test/**/*"
   ],
   "include": [
     "src/**/*"

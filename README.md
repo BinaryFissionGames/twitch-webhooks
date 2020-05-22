@@ -73,6 +73,13 @@ then webhooks ***WILL NOT*** be renewed. A simple, default implementation is pro
 after 85% of it's time from start to expiry has occurred. Smarter logic can be substituted by implementing
 the `WebhookRenewalScheduler` interface.
 
+## Example(s)
+
+As of right now, [this repo](https://github.com/Denu8thell/twitch-webhooks-test) is the best example
+I can give of a larger application. The code needs major cleaning up to be readable, but it might be the best bet in terms
+of seeing "working" code. This example takes advantage of persistence using [Sequelize](https://github.com/sequelize/sequelize), which may be of
+interest.
+
 ----
 TODO: 
 - More documentation

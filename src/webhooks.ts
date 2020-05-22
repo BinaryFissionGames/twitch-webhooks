@@ -116,7 +116,8 @@ class TwitchWebhookManager extends EventEmitter {
         }
     }
 
-    // Unsubs from all webhooks; Ends the renewal scheduler
+    // Safely shuts down all related/owned function of the webhook manager - no data is necessarily destroyed,
+    // Although it depends on the behaviour of the persistence manager
     public async destroy() {
         if (this.renewalInterval) {
             clearInterval(this.renewalInterval);
@@ -133,6 +134,7 @@ class TwitchWebhookManager extends EventEmitter {
         }
     }
 
+    //Unsubscribes from all webhook endpoints.
     public async unsubFromAll() {
         let promises = [];
         let webhooks = await this.config.persistenceManager.getAllWebhooks();
@@ -159,48 +161,21 @@ class TwitchWebhookManager extends EventEmitter {
             params.set("from_id", from_id);
         }
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.UserFollows, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.UserFollows, params, config, to_id || from_id);
     }
 
     public async addStreamChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
         let params = new Map<string, string>();
         params.set("user_id", user_id);
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.StreamChanged, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.StreamChanged, params, config, user_id);
     }
 
     public async addUserChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
         let params = new Map<string, string>();
         params.set("id", user_id);
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.UserChanged, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true, user_id);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.UserChanged, params, config, user_id);
     }
 
     public async addExtensionTransactionCreatedSubscription(config: WebhookOptions, extension_id: string): Promise<WebhookId> {
@@ -208,16 +183,7 @@ class TwitchWebhookManager extends EventEmitter {
         params.set("extension_id", extension_id);
         params.set("first", "1");
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.ExtensionTransactionCreated, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.ExtensionTransactionCreated, params, config);
     }
 
     public async addModeratorChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
@@ -229,16 +195,7 @@ class TwitchWebhookManager extends EventEmitter {
             params.set("user_id", user_id);
         }
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.ModeratorChange, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true, broadcaster_id);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.ModeratorChange, params, config, broadcaster_id);
     }
 
     public async addChannelBanChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
@@ -250,16 +207,7 @@ class TwitchWebhookManager extends EventEmitter {
             params.set("user_id", user_id);
         }
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.ChannelBanChange, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true, broadcaster_id);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.ChannelBanChange, params, config, broadcaster_id);
     }
 
     public async addSubscriptionEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string,
@@ -279,16 +227,7 @@ class TwitchWebhookManager extends EventEmitter {
             params.set("gifter_name", gifter_name);
         }
 
-        let webhook = createWebhookPersistenceObject(this, WebhookType.Subscription, params, config);
-
-        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
-        if (oldWebhook) {
-            return oldWebhook.id;
-        }
-
-        await this.config.persistenceManager.persistWebhook(webhook);
-        await this.changeSub(webhook, true, broadcaster_id);
-        return webhook.id;
+        return await this.subscribeOrGetSubscription(WebhookType.Subscription, params, config, broadcaster_id);
     }
 
     public async unsubscribe(webhookId: WebhookId): Promise<void> {
@@ -326,6 +265,19 @@ class TwitchWebhookManager extends EventEmitter {
         //We do not need to check if the webhook is subscribed;
         //If the webhook is subscribed already, it will simply be renewed.
         await this.changeSub(webhook, true);
+    }
+
+    private async subscribeOrGetSubscription(type: WebhookType, params: Map<string, string>, config: WebhookOptions, associatedUser?: string): Promise<WebhookId> {
+        let webhook = createWebhookPersistenceObject(this, type, params, config);
+
+        let oldWebhook = await this.config.persistenceManager.getWebhookById(webhook.id);
+        if (oldWebhook) {
+            return oldWebhook.id;
+        }
+
+        await this.config.persistenceManager.persistWebhook(webhook);
+        await this.changeSub(webhook, true, associatedUser);
+        return webhook.id;
     }
 
     private async changeSub(webhook: WebhookPersistenceObject, subscribe: boolean, userId?: string): Promise<void> {

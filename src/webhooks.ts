@@ -28,15 +28,15 @@ type TwitchWebhookManagerConfig = {
 }
 
 type TwitchWebhookManagerConfig_Internal = {
-    hostname: string, // Hostname. Used in computation of the callback URL that subscribes to events
-    app: Application, // Express application to add REST endpoints to.
-    client_id: string, // Client id associated with the OAuth token
-    getOAuthToken: GetOAuthTokenCallback, // Returns the OAuth token (wrapped in a promise; this is asynchronous). If userId is undefined, then it may be an application token or any user token.
-    refreshOAuthToken: RefreshOAuthTokenCallback, // Refreshes the OAuth token; Returns the updated OAuth token (wrapped in a promise; this is asynchronous). Takes failed oauth token as a parameter
-    base_path?: string, // Base path for the webhook "namespace". The full path is computed as ${hostname}/${base_path}/${endpoint_name}. If not specified, the base_path is omitted
-    secret: string, // default secret to use for hub.secret. If none is provided, a cryptographically secure random string is constructed to be used.
-    renewalScheduler?: WebhookRenewalScheduler; // Rescheduler; If none is provided, then webhooks will not be renewed.
-    persistenceManager: TwitchWebhookPersistenceManager; // Persistence manager; If none is provided, an IN-MEMORY persistence manager will be used.
+    hostname: string,
+    app: Application,
+    client_id: string,
+    getOAuthToken: GetOAuthTokenCallback,
+    refreshOAuthToken: RefreshOAuthTokenCallback,
+    base_path?: string,
+    secret: string,
+    renewalScheduler?: WebhookRenewalScheduler;
+    persistenceManager: TwitchWebhookPersistenceManager;
     hubUrl: string
 }
 

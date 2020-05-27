@@ -1,7 +1,6 @@
 import {NextFunction} from "express";
 import * as express from "express";
 import * as crypto from "crypto";
-import * as https from "https";
 import concat = require("concat-stream");
 import {createErrorFromResponse, SubscriptionDeniedError} from "./errors";
 import {EventEmitter} from "events";
@@ -19,7 +18,7 @@ import {
     TwitchWebhookManagerConfig,
     TwitchWebhookManagerConfig_Internal
 } from "./config";
-
+import got from 'got';
 
 const TWITCH_HUB_URL = "https://api.twitch.tv/helix/webhooks/hub";
 type WebhookId = string;
@@ -268,9 +267,7 @@ class TwitchWebhookManager extends EventEmitter {
         };
 
         let token = await this.config.getOAuthToken(userId);
-        return new Promise((resolve, reject) => {
-            doHubRequest(webhook, this, hubParams, token, true, resolve, reject);
-        });
+        return doHubRequest(webhook, this, hubParams, token);
     }
 
     //Hooks configured endpoints into the express app.
@@ -359,49 +356,45 @@ class TwitchWebhookManager extends EventEmitter {
 }
 
 //Do a request to the Twitch WebSub hub.
-function doHubRequest(webhook: WebhookPersistenceObject, manager: TwitchWebhookManager, hubParams: HubParams, oAuthToken: string, refreshOnFail: boolean, resolve: () => void, reject: (e: Error) => void) {
+async function doHubRequest(webhook: WebhookPersistenceObject, manager: TwitchWebhookManager, hubParams: HubParams, oAuthToken: string) {
     let paramJson = Buffer.from(JSON.stringify(hubParams), 'utf8');
 
-    manager.config.logger.debug(`Making hub request (refreshOnFail: ${refreshOnFail}) with: `, hubParams);
+    manager.config.logger.debug(`Making hub request with: `, hubParams);
 
-    let req = https.request(manager.config.hubUrl, {
+    let resp = await got.post(manager.config.hubUrl, {
         headers: {
             "Authorization": `Bearer ${oAuthToken}`,
             "Client-ID": manager.config.client_id,
             "Content-Type": 'application/json',
-            "Content-Length": paramJson.length
         },
-        method: 'POST',
-        timeout: 10000
-    }, (res) => {
-        let body = '';
-
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-            body += chunk;
-        });
-
-        res.on('end', async () => {
-            if (res.statusCode && Math.floor(res.statusCode / 100) === 2) {
-                resolve();
-            } else {
-                if (refreshOnFail) {
-                    let newToken: string = await manager.config.refreshOAuthToken(oAuthToken);
-                    //Try once more with the new token, don't refresh this time.
-                    doHubRequest(webhook, manager, hubParams, newToken, false, resolve, reject);
-                } else {
-                    reject(createErrorFromResponse(res, body) || new Error('Unknown error when doing hub request: ' + body));
-                }
-            }
-        });
+        timeout: 10000,
+        retry: 0,
+        body: paramJson
     });
 
-    req.on('error', (e) => {
-        reject(e);
-    });
+    if (resp.statusCode && Math.floor(resp.statusCode / 100) === 2) {
+        return;
+    } else if (resp.statusCode === 401) {
+        //Retry
+        let resp = await got.post(manager.config.hubUrl, {
+            headers: {
+                "Authorization": `Bearer ${await manager.config.refreshOAuthToken(oAuthToken)}`,
+                "Client-ID": manager.config.client_id,
+                "Content-Type": 'application/json',
+            },
+            timeout: 10000,
+            retry: 0,
+            body: paramJson
+        });
 
-    req.write(paramJson);
-    req.end();
+        if (resp.statusCode && Math.floor(resp.statusCode / 100) === 2) {
+            return;
+        }
+
+        throw createErrorFromResponse(resp, resp.body) || new Error('Unknown error when doing hub request: ' + resp.body);
+    } else {
+        throw createErrorFromResponse(resp, resp.body) || new Error('Unknown error when doing hub request: ' + resp.body);
+    }
 }
 
 function getEndpointPath(basePath: string | undefined, webhookType: WebhookType): string {

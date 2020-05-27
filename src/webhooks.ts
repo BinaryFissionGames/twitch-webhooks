@@ -19,6 +19,7 @@ import {
     TwitchWebhookManagerConfig_Internal
 } from "./config";
 import got from 'got';
+import {convertPayload, WebhookPayload} from "./payload_types";
 
 const TWITCH_HUB_URL = "https://api.twitch.tv/helix/webhooks/hub";
 type WebhookId = string;
@@ -30,6 +31,20 @@ type HubParams = {
     'hub.lease_seconds': number;
     'hub.secret': string;
 };
+
+declare interface TwitchWebhookManager {
+    emit(event: 'message', webhookId: WebhookId, payload: WebhookPayload<any>): boolean;
+
+    on(event: 'message', callback: (webhookId: WebhookId, payload: WebhookPayload<any>) => void): this;
+
+    emit(event: 'error', e: Error, webhookId?: WebhookId): this
+
+    on(event: 'error', callback: (e: Error, webhookId?: WebhookId) => void): this
+
+    emit(event: 'subscribed', webhookId: WebhookId): this
+
+    on(event: 'subscribed', callback: (webhookId: WebhookId) => void): this
+}
 
 class TwitchWebhookManager extends EventEmitter {
     readonly config: TwitchWebhookManagerConfig_Internal;
@@ -290,12 +305,16 @@ class TwitchWebhookManager extends EventEmitter {
                 let webhookId = getIdFromTypeAndParams(Number(type), new URL(req.originalUrl, `https://${req.headers.host}`).search);
                 let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
                 if (webhook) {
-                    let msg = req.body;
                     res.status(200);
                     res.end();
 
-                    this.config.logger.debug('Got message: ', msg);
-                    this.emit('message', type, webhookId, msg);
+                    let webhookPayload = {
+                        type: Number(type),
+                        data: convertPayload(Number(type), req.body.data[0])
+                    };
+
+                    this.config.logger.debug('Got message: ', webhookPayload);
+                    this.emit('message', webhookId, webhookPayload);
                 } else {
                     res.status(404);
                     this.config.logger.error(`Got POST for unknown webhook URL: ${req.originalUrl}`);

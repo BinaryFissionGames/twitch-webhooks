@@ -1,5 +1,6 @@
 //FOLLOW EVENT DATA TYPE(S)
 import {WebhookType} from "./config";
+import { unixTimestampToDate } from "./util";
 
 type FollowEvent = {
     from_id: string,
@@ -135,10 +136,31 @@ type WebhookPayload<T extends WebhookType> = {
           T extends WebhookType.ModeratorChange ? ModeratorChangeEvent :
           T extends WebhookType.ChannelBanChange ? ChannelBanChangeEvent :
           T extends WebhookType.Subscription ? SubscriptionEvent :
-          undefined
+          any
 }
 
-//TODO write function to coerce "any" type to the above types.
+//Converts payload to internal format. For now, that just means parsing dates out into actual Date objects
+function convertPayload(type: WebhookType, obj: {[key: string]: any}): {[key: string]: any} {
+    switch (type) {
+        case WebhookType.UserFollows:
+            obj.followed_at = unixTimestampToDate(obj.followed_at);
+            break;
+        case WebhookType.StreamChanged:
+            obj.started_at = unixTimestampToDate(obj.started_at);
+            break;
+        case WebhookType.ExtensionTransactionCreated:
+            obj.timestamp = unixTimestampToDate(obj.timestamp);
+            break;
+        case WebhookType.ModeratorChange:
+        case WebhookType.ChannelBanChange:
+        case WebhookType.Subscription:
+            obj.event_timestamp = unixTimestampToDate(obj.event_timestamp);
+            break;
+        default:
+            break;
+    }
+    return obj;
+}
 
 export {
     FollowEvent,
@@ -154,5 +176,6 @@ export {
     SubscriptionEventType,
     SubscriptionEvent,
     SubscriptionEventData,
-    WebhookPayload
+    WebhookPayload,
+    convertPayload
 }

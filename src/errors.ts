@@ -1,5 +1,6 @@
 import {IncomingMessage} from 'http'
 import {WebhookPersistenceObject} from "./persistence";
+import {unixTimestampToDate} from "./util";
 
 class TwitchRequestError extends Error {
     statusCode: number;

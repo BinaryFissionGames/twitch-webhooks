@@ -1,30 +1,32 @@
 import {
     TwitchWebhookManager,
-    WebhookId,
-    WebhookOptions,
-    WebhookType,
-    WebhookTypeEndpoint,
-    WebhookTypeTopic
+    WebhookId
 } from "./webhooks";
 import * as crypto from "crypto";
+import {WebhookOptions, WebhookType, WebhookTypeEndpoint, WebhookTypeTopic} from "./config";
 
 type WebhookPersistenceObject = {
     id: WebhookId,
     type: WebhookType,
     href: string,
     subscribed: boolean,
-    subscriptionStart ?: Date,
-    subscriptionEnd ?: Date,
+    subscriptionStart?: Date,
+    subscriptionEnd?: Date,
     secret: string,
     leaseSeconds: number
 }
 
 interface TwitchWebhookPersistenceManager {
-    persistWebhook(webhook: WebhookPersistenceObject) : Promise<void>;
-    saveWebhook(webhook: WebhookPersistenceObject) : Promise<void>;
-    deleteWebhook(webhookId: WebhookId) : Promise<void>;
-    getAllWebhooks() : Promise<WebhookPersistenceObject[]>;
-    getWebhookById(webhookId: WebhookId) : Promise<WebhookPersistenceObject | undefined>;
+    persistWebhook(webhook: WebhookPersistenceObject): Promise<void>;
+
+    saveWebhook(webhook: WebhookPersistenceObject): Promise<void>;
+
+    deleteWebhook(webhookId: WebhookId): Promise<void>;
+
+    getAllWebhooks(): Promise<WebhookPersistenceObject[]>;
+
+    getWebhookById(webhookId: WebhookId): Promise<WebhookPersistenceObject | undefined>;
+
     destroy(): Promise<void>;
 }
 
@@ -44,7 +46,11 @@ class MemoryBasedTwitchWebhookPersistenceManager implements TwitchWebhookPersist
     }
 
     async getWebhookById(id: WebhookId): Promise<WebhookPersistenceObject | undefined> {
-        return Object.assign({}, this.webhooks.get(id));
+        let webhook = this.webhooks.get(id);
+        if (webhook) {
+            return Object.assign({}, webhook);
+        }
+        return undefined;
     }
 
     async persistWebhook(webhook: WebhookPersistenceObject): Promise<void> {
@@ -57,9 +63,9 @@ class MemoryBasedTwitchWebhookPersistenceManager implements TwitchWebhookPersist
 }
 
 function createWebhookPersistenceObject(manager: TwitchWebhookManager, type: WebhookType, params: Map<string, string>,
-                                        options: WebhookOptions) : WebhookPersistenceObject{
+                                        options: WebhookOptions): WebhookPersistenceObject {
     let paramString = computeTopicParamString(params);
-    let secret =  options.secret || manager.config.secret;
+    let secret = options.secret || manager.config.secret;
     let href = WebhookTypeTopic.get(type) + paramString;
     let hashedSecret = crypto.createHmac('sha256', <string>secret).update(href).digest('hex');
     return {
@@ -72,7 +78,7 @@ function createWebhookPersistenceObject(manager: TwitchWebhookManager, type: Web
     }
 }
 
-function getIdFromTypeAndParams(type: WebhookType, searchString: string){
+function getIdFromTypeAndParams(type: WebhookType, searchString: string) {
     return WebhookTypeEndpoint.get(type) + searchString;
 }
 

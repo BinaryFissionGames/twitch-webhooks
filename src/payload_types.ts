@@ -1,5 +1,5 @@
 //FOLLOW EVENT DATA TYPE(S)
-import {WebhookType} from "./webhooks";
+import {WebhookType} from "./config";
 
 type FollowEvent = {
     from_id: string,

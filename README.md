@@ -2,7 +2,6 @@
 
 Library for subscribing to Twitch webhooks.
 
-----
 ## Features
 - Persistence support
 - Rescheduling support
@@ -80,7 +79,6 @@ I can give of a larger application. The code needs major cleaning up to be reada
 of seeing "working" code. This example takes advantage of persistence using [Sequelize](https://github.com/sequelize/sequelize), which may be of
 interest.
 
-----
 TODO: 
 - More documentation
 - Better typing (enum types and all that for twitch events - need to research the endpoints in practice, since the docs are NOT clear.)

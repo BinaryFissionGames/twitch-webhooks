@@ -1,6 +1,6 @@
 //FOLLOW EVENT DATA TYPE(S)
 import {WebhookType} from "./config";
-import { unixTimestampToDate } from "./util";
+import {unixTimestampToDate} from "./util";
 
 type FollowEvent = {
     from_id: string,
@@ -23,7 +23,7 @@ type StreamChangedEvent = {
     started_at: Date,
     language: string,
     thumbnail_url: string
-};
+} | undefined;
 
 //USER CHANGED EVENT DATA TYPE(S)
 type UserChangedEvent = {
@@ -124,29 +124,75 @@ type SubscriptionEventData = {
     user_name: string,
     message?: string
 }
+//TYPES FOR SUBSCRIPTION PARAMS
+
+type UserFollowsSubParams = {
+    to_id?: string
+    from_id?: string
+}
+
+type StreamChangedSubParams = {
+    user_id: string
+}
+
+type UserChangedSubParams = {
+    user_id: string
+}
+
+type ExtensionTransactionCreatedSubParams = {
+    extension_id: string
+}
+
+type ModeratorChangedSubParams = {
+    broadcaster_id: string
+    user_id?: string
+}
+
+type ChannelBanChangedSubParams = {
+    broadcaster_id: string
+    user_id?: string
+}
+
+type SubscriptionSubParams = {
+    broadcaster_id: string
+    user_id?: string
+    gifter_id?: string,
+    gifter_name?: string
+}
 
 //BASE WEBHOOK EVENT OBJECT
 // On a human note, conditional types are so f***ing cool! Try doing THIS in Java!
 type WebhookPayload<T extends WebhookType> = {
     type: T,
     data: T extends WebhookType.UserFollows ? FollowEvent :
-          T extends WebhookType.StreamChanged ? StreamChangedEvent :
-          T extends WebhookType.UserChanged ? UserChangedEvent :
-          T extends WebhookType.ExtensionTransactionCreated ? ExtensionTransactionCreatedEvent :
-          T extends WebhookType.ModeratorChange ? ModeratorChangeEvent :
-          T extends WebhookType.ChannelBanChange ? ChannelBanChangeEvent :
-          T extends WebhookType.Subscription ? SubscriptionEvent :
-          any
+        T extends WebhookType.StreamChanged ? StreamChangedEvent :
+            T extends WebhookType.UserChanged ? UserChangedEvent :
+                T extends WebhookType.ExtensionTransactionCreated ? ExtensionTransactionCreatedEvent :
+                    T extends WebhookType.ModeratorChange ? ModeratorChangeEvent :
+                        T extends WebhookType.ChannelBanChange ? ChannelBanChangeEvent :
+                            T extends WebhookType.Subscription ? SubscriptionEvent :
+                                any
+    subParams: T extends WebhookType.UserFollows ? UserFollowsSubParams :
+        T extends WebhookType.StreamChanged ? StreamChangedSubParams :
+            T extends WebhookType.UserChanged ? UserChangedSubParams :
+                T extends WebhookType.ExtensionTransactionCreated ? ExtensionTransactionCreatedSubParams :
+                    T extends WebhookType.ModeratorChange ? ModeratorChangedSubParams :
+                        T extends WebhookType.ChannelBanChange ? ChannelBanChangedSubParams :
+                            T extends WebhookType.Subscription ? SubscriptionSubParams :
+                                any
 }
 
+
 //Converts payload to internal format. For now, that just means parsing dates out into actual Date objects
-function convertPayload(type: WebhookType, obj: {[key: string]: any}): {[key: string]: any} {
+function convertPayload(type: WebhookType, obj: { [key: string]: any }): { [key: string]: any } {
     switch (type) {
         case WebhookType.UserFollows:
             obj.followed_at = unixTimestampToDate(obj.followed_at);
             break;
         case WebhookType.StreamChanged:
-            obj.started_at = unixTimestampToDate(obj.started_at);
+            if (obj !== undefined) {
+                obj.started_at = unixTimestampToDate(obj.started_at);
+            }
             break;
         case WebhookType.ExtensionTransactionCreated:
             obj.timestamp = unixTimestampToDate(obj.timestamp);
@@ -176,6 +222,13 @@ export {
     SubscriptionEventType,
     SubscriptionEvent,
     SubscriptionEventData,
+    UserFollowsSubParams,
+    StreamChangedSubParams,
+    UserChangedSubParams,
+    ExtensionTransactionCreatedSubParams,
+    ModeratorChangedSubParams,
+    ChannelBanChangedSubParams,
+    SubscriptionSubParams,
     WebhookPayload,
     convertPayload
 }

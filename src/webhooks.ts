@@ -13,13 +13,20 @@ import {
 } from "./persistence";
 import {
     WebhookType,
-    WebhookTypeEndpoint,
     WebhookOptions,
     TwitchWebhookManagerConfig,
     TwitchWebhookManagerConfig_Internal
 } from "./config";
 import got from 'got';
-import {convertPayload, WebhookPayload} from "./payload_types";
+import {
+    ChannelBanChangedSubParams,
+    convertPayload, ExtensionTransactionCreatedSubParams, ModeratorChangedSubParams,
+    StreamChangedSubParams, SubscriptionSubParams,
+    UserChangedSubParams,
+    UserFollowsSubParams,
+    WebhookPayload
+} from "./payload_types";
+import {getCallbackUrl, getEndpointPath, getWebhookParamsFromId} from "./util";
 
 const TWITCH_HUB_URL = "https://api.twitch.tv/helix/webhooks/hub";
 type WebhookId = string;
@@ -33,6 +40,7 @@ type HubParams = {
 };
 
 declare interface TwitchWebhookManager {
+    //General events
     emit(event: 'message', webhookId: WebhookId, payload: WebhookPayload<any>): boolean;
 
     on(event: 'message', callback: (webhookId: WebhookId, payload: WebhookPayload<any>) => void): this;
@@ -44,6 +52,36 @@ declare interface TwitchWebhookManager {
     emit(event: 'subscribed', webhookId: WebhookId): this
 
     on(event: 'subscribed', callback: (webhookId: WebhookId) => void): this
+
+    //Events for specific event types.
+    emit(event: 'userFollows', webhookId: WebhookId, payload: WebhookPayload<WebhookType.UserFollows>): boolean;
+
+    emit(event: 'streamChanged', webhookId: WebhookId, payload: WebhookPayload<WebhookType.StreamChanged>): boolean;
+
+    emit(event: 'userChanged', webhookId: WebhookId, payload: WebhookPayload<WebhookType.UserChanged>): boolean;
+
+    emit(event: 'extensionTransactionCreated', webhookId: WebhookId, payload: WebhookPayload<WebhookType.ExtensionTransactionCreated>): boolean;
+
+    emit(event: 'moderatorChangeEvent', webhookId: WebhookId, payload: WebhookPayload<WebhookType.ModeratorChange>): boolean;
+
+    emit(event: 'channelBanEvent', webhookId: WebhookId, payload: WebhookPayload<WebhookType.ChannelBanChange>): boolean;
+
+    emit(event: 'subscriptionEvent', webhookId: WebhookId, payload: WebhookPayload<WebhookType.Subscription>): boolean;
+
+    on(event: 'userFollows', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.UserFollows>) => void): this;
+
+    on(event: 'streamChanged', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.StreamChanged>) => void): this;
+
+    on(event: 'userChanged', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.UserChanged>) => void): this;
+
+    on(event: 'extensionTransactionCreated', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.ExtensionTransactionCreated>) => void): this;
+
+    on(event: 'moderatorChangeEvent', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.ModeratorChange>) => void): this;
+
+    on(event: 'channelBanEvent', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.ChannelBanChange>) => void): this;
+
+    on(event: 'subscriptionEvent', callback: (webhookId: WebhookId, payload: WebhookPayload<WebhookType.Subscription>) => void): this;
+
 }
 
 class TwitchWebhookManager extends EventEmitter {
@@ -123,9 +161,9 @@ class TwitchWebhookManager extends EventEmitter {
         await Promise.all(promises);
     }
 
-    public async addUserFollowsSubscription(config: WebhookOptions, to_id?: string, from_id?: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding user follows subscription: to_id: ${to_id}, from_id: ${from_id}`);
-        if (!to_id && !from_id) {
+    public async addUserFollowsSubscription(config: WebhookOptions, subParams: UserFollowsSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding user follows subscription: to_id: ${subParams.to_id}, from_id: ${subParams.from_id}`);
+        if (!subParams.to_id && !subParams.from_id) {
             throw new Error("to_id or from_id (or both) must be specified!");
         }
 
@@ -133,87 +171,85 @@ class TwitchWebhookManager extends EventEmitter {
 
         params.set("first", "1");
 
-        if (to_id) {
-            params.set("to_id", to_id);
+        if (subParams.to_id) {
+            params.set("to_id", subParams.to_id);
         }
 
-        if (from_id) {
-            params.set("from_id", from_id);
+        if (subParams.from_id) {
+            params.set("from_id", subParams.from_id);
         }
-
-        return await this.subscribeOrGetSubscription(WebhookType.UserFollows, params, config, to_id || from_id);
+        return await this.subscribeOrGetSubscription(WebhookType.UserFollows, params, config);
     }
 
-    public async addStreamChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding stream changed subscription: user_id: ${user_id}`);
+    public async addStreamChangedSubscription(config: WebhookOptions, subParams: StreamChangedSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding stream changed subscription: user_id: ${subParams.user_id}`);
         let params = new Map<string, string>();
-        params.set("user_id", user_id);
+        params.set("user_id", subParams.user_id);
 
-        return await this.subscribeOrGetSubscription(WebhookType.StreamChanged, params, config, user_id);
+        return await this.subscribeOrGetSubscription(WebhookType.StreamChanged, params, config);
     }
 
-    public async addUserChangedSubscription(config: WebhookOptions, user_id: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding user changed subscription: user_id: ${user_id}`);
+    public async addUserChangedSubscription(config: WebhookOptions, subParams: UserChangedSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding user changed subscription: user_id: ${subParams.user_id}`);
         let params = new Map<string, string>();
-        params.set("id", user_id);
+        params.set("id", subParams.user_id);
 
-        return await this.subscribeOrGetSubscription(WebhookType.UserChanged, params, config, user_id);
+        return await this.subscribeOrGetSubscription(WebhookType.UserChanged, params, config, subParams.user_id);
     }
 
-    public async addExtensionTransactionCreatedSubscription(config: WebhookOptions, extension_id: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding extension transaction created subscription: user_id: ${extension_id}`);
+    public async addExtensionTransactionCreatedSubscription(config: WebhookOptions, subParams: ExtensionTransactionCreatedSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding extension transaction created subscription: user_id: ${subParams.extension_id}`);
         let params = new Map<string, string>();
-        params.set("extension_id", extension_id);
+        params.set("extension_id", subParams.extension_id);
         params.set("first", "1");
 
         return await this.subscribeOrGetSubscription(WebhookType.ExtensionTransactionCreated, params, config);
     }
 
-    public async addModeratorChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding moderator changed subscription: broadcaster_id: ${broadcaster_id}, user_id: ${user_id}`);
+    public async addModeratorChangedSubscription(config: WebhookOptions, subParams: ModeratorChangedSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding moderator changed subscription: broadcaster_id: ${subParams.broadcaster_id}, user_id: ${subParams.user_id}`);
         let params = new Map<string, string>();
         params.set("first", "1");
-        params.set("broadcaster_id", broadcaster_id);
+        params.set("broadcaster_id", subParams.broadcaster_id);
 
-        if (user_id) {
-            params.set("user_id", user_id);
+        if (subParams.user_id) {
+            params.set("user_id", subParams.user_id);
         }
 
-        return await this.subscribeOrGetSubscription(WebhookType.ModeratorChange, params, config, broadcaster_id);
+        return await this.subscribeOrGetSubscription(WebhookType.ModeratorChange, params, config, subParams.broadcaster_id);
     }
 
-    public async addChannelBanChangedEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding channel ban changed subscription: broadcaster_id: ${broadcaster_id}, user_id: ${user_id}`);
+    public async addChannelBanChangedSubscription(config: WebhookOptions, subParams: ChannelBanChangedSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding channel ban changed subscription: broadcaster_id: ${subParams.broadcaster_id}, user_id: ${subParams.user_id}`);
         let params = new Map<string, string>();
         params.set("first", "1");
-        params.set("broadcaster_id", broadcaster_id);
+        params.set("broadcaster_id", subParams.broadcaster_id);
 
-        if (user_id) {
-            params.set("user_id", user_id);
+        if (subParams.user_id) {
+            params.set("user_id", subParams.user_id);
         }
 
-        return await this.subscribeOrGetSubscription(WebhookType.ChannelBanChange, params, config, broadcaster_id);
+        return await this.subscribeOrGetSubscription(WebhookType.ChannelBanChange, params, config, subParams.broadcaster_id);
     }
 
-    public async addSubscriptionEvent(config: WebhookOptions, broadcaster_id: string, user_id?: string,
-                                      gifter_id?: string, gifter_name?: string): Promise<WebhookId> {
-        this.config.logger.info(`Adding subscription subscription: broadcaster_id: ${broadcaster_id}, user_id: ${user_id}, gifter_id: ${gifter_id}, gifter_name: ${gifter_name}`);
+    public async addSubscriptionSubscription(config: WebhookOptions, subParams: SubscriptionSubParams): Promise<WebhookId> {
+        this.config.logger.info(`Adding subscription subscription: broadcaster_id: ${subParams.broadcaster_id}, user_id: ${subParams.user_id}, gifter_id: ${subParams.gifter_id}, gifter_name: ${subParams.gifter_name}`);
         let params = new Map<string, string>();
-        params.set("broadcaster_id", broadcaster_id);
+        params.set("broadcaster_id", subParams.broadcaster_id);
         params.set("first", "1");
-        if (user_id) {
-            params.set("user_id", user_id);
+        if (subParams.user_id) {
+            params.set("user_id", subParams.user_id);
         }
 
-        if (gifter_id) {
-            params.set("gifter_id", gifter_id);
+        if (subParams.gifter_id) {
+            params.set("gifter_id", subParams.gifter_id);
         }
 
-        if (gifter_name) {
-            params.set("gifter_name", gifter_name);
+        if (subParams.gifter_name) {
+            params.set("gifter_name", subParams.gifter_name);
         }
 
-        return await this.subscribeOrGetSubscription(WebhookType.Subscription, params, config, broadcaster_id);
+        return await this.subscribeOrGetSubscription(WebhookType.Subscription, params, config, subParams.broadcaster_id);
     }
 
     public async unsubscribe(webhookId: WebhookId): Promise<void> {
@@ -310,11 +346,13 @@ class TwitchWebhookManager extends EventEmitter {
 
                     let webhookPayload = {
                         type: Number(type),
-                        data: convertPayload(Number(type), req.body.data[0])
+                        data: convertPayload(Number(type), req.body.data[0]),
+                        subParams: getWebhookParamsFromId(Number(type), webhookId)
                     };
 
                     this.config.logger.debug('Got message: ', webhookPayload);
                     this.emit('message', webhookId, webhookPayload);
+                    this.emitSpecificEvent(webhookId, webhookPayload);
                 } else {
                     res.status(404);
                     this.config.logger.error(`Got POST for unknown webhook URL: ${req.originalUrl}`);
@@ -372,6 +410,34 @@ class TwitchWebhookManager extends EventEmitter {
             });
         }
     }
+
+    private emitSpecificEvent(webhookId: WebhookId, payload: WebhookPayload<any>): void {
+        switch (payload.type) {
+            case WebhookType.UserFollows:
+                this.emit('userFollows', webhookId, payload);
+                break;
+            case WebhookType.StreamChanged:
+                this.emit('streamChanged', webhookId, payload);
+                break;
+            case WebhookType.UserChanged:
+                this.emit('userChanged', webhookId, payload);
+                break;
+            case WebhookType.ExtensionTransactionCreated:
+                this.emit('extensionTransactionCreated', webhookId, payload);
+                break;
+            case WebhookType.ModeratorChange:
+                this.emit('moderatorChangeEvent', webhookId, payload);
+                break;
+            case WebhookType.ChannelBanChange:
+                this.emit('channelBanEvent', webhookId, payload);
+                break;
+            case WebhookType.Subscription:
+                this.emit('subscriptionEvent', webhookId, payload);
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 //Do a request to the Twitch WebSub hub.
@@ -416,20 +482,6 @@ async function doHubRequest(webhook: WebhookPersistenceObject, manager: TwitchWe
     }
 }
 
-function getEndpointPath(basePath: string | undefined, webhookType: WebhookType): string {
-    let normalizedBasePath: string;
-
-    if (basePath) {
-        normalizedBasePath = "/" + basePath;
-    } else {
-        normalizedBasePath = "";
-    }
-    return `${normalizedBasePath}/${WebhookTypeEndpoint.get(Number(webhookType))}`;
-}
-
-function getCallbackUrl(manager: TwitchWebhookManager, webhook: WebhookPersistenceObject): string {
-    return manager.config.hostname + getEndpointPath(manager.config.base_path, webhook.type) + new URL(webhook.href).search;
-}
 
 function getVerificationMiddleware(twitchWebhookManager: TwitchWebhookManager) {
     return async function verificationMiddleware(req: express.Request, res: express.Response, next: NextFunction) {

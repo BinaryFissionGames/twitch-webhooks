@@ -91,13 +91,27 @@ describe('Twitch Webhooks', function () {
 
         it("Doesn't error when subscribing to each endpoint", async function () {
             if (manager) {
-                await manager.addUserFollowsSubscription({}, '1');
-                await manager.addStreamChangedSubscription({}, '1');
-                await manager.addUserChangedSubscription({}, '1');
-                await manager.addExtensionTransactionCreatedSubscription({}, '12');
-                await manager.addChannelBanChangedEvent({}, '1');
-                await manager.addModeratorChangedEvent({}, '1');
-                await manager.addSubscriptionEvent({}, '1');
+                await manager.addUserFollowsSubscription({}, {
+                    to_id: '1'
+                });
+                await manager.addStreamChangedSubscription({}, {
+                    user_id: '1'
+                });
+                await manager.addUserChangedSubscription({}, {
+                    user_id: '1'
+                });
+                await manager.addExtensionTransactionCreatedSubscription({}, {
+                    extension_id: '12'
+                });
+                await manager.addChannelBanChangedSubscription({}, {
+                    broadcaster_id: '1'
+                });
+                await manager.addModeratorChangedSubscription({}, {
+                    broadcaster_id: '1'
+                });
+                await manager.addSubscriptionSubscription({}, {
+                    broadcaster_id: '1'
+                });
             } else {
                 throw new Error('Manager is undefined');
             }
@@ -127,7 +141,11 @@ describe('Twitch Webhooks', function () {
                                 throw new Error(`Expected type ${ThisProjectWebhookType.UserFollows}, but got ${payload.type}`);
                             }
 
-                            assert.deepStrictEqual(payload.data, followEvent.data, new Error('Got event does not match the emitted event!'));
+                            assert.deepStrictEqual(payload.data, followEvent.data);
+                            assert.deepEqual(payload.subParams, {
+                                to_id: '1',
+                                from_id: undefined
+                            });
                             resolve();
                         } catch (e) {
                             reject(e);
@@ -141,7 +159,9 @@ describe('Twitch Webhooks', function () {
                         emitEvent(followEvent).catch(reject);
                     });
 
-                    let subId = await manager.addUserFollowsSubscription({}, '1');
+                    let subId = await manager.addUserFollowsSubscription({}, {
+                        to_id: '1'
+                    });
                 } else {
                     reject(new Error('Manager is undefined'));
                 }

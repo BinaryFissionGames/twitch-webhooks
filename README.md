@@ -30,7 +30,7 @@ Run the command
     });
     
     //setup message handler
-    webhook.on('message', (type: WebhookType, webhookId: WebhookId, msg: WebhookPayload) => {
+    webhook.on('message', (webhookId: WebhookId, msg: WebhookPayload<any>) => {
         console.log(`Got message: ${type} for webhook ${webhookId}, ${JSON.stringify(msg)}`);
     });
     

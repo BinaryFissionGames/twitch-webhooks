@@ -28,6 +28,8 @@
     "mocha": "^7.2.0"
   },
   "devDependencies": {
+    "@types/deep-equal": "^1.0.1",
+    "deep-equal": "^2.0.3",
     "dotenv": "^8.2.0",
     "twitch-mock-webhook-hub": "^0.3.7",
     "twitch-oauth-authorization-code-express": "^2.0.0"

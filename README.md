@@ -42,7 +42,7 @@ Run the command
             let webhookId = await webhookManager.addUserFollowsSubscription({
                 leaseSeconds: 6000, // Can be up to 864000 (default, 10 days),
                 secret: 'thisiswebhookspecificsecret' //If omitted, the webhook manager secret is used.
-            }, 1002 /*to_id*/);
+            }, "1002" /*to_id*/);
             
             /* Code goes here */
             

@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "dotenv": "^8.2.0",
-    "twitch-mock-webhook-hub": "^0.3.4",
+    "twitch-mock-webhook-hub": "^0.3.7",
     "twitch-oauth-authorization-code-express": "^2.0.0"
   }
 }

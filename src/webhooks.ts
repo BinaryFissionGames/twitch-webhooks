@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import concat = require("concat-stream");
 import {createErrorFromResponse, SubscriptionDeniedError} from "./errors";
 import {EventEmitter} from "events";
-import {WebhookRenewalScheduler} from "./scheduling";
+import {IResubscribeable, WebhookRenewalScheduler} from "./scheduling";
 import {
     createWebhookPersistenceObject,
     getIdFromTypeAndParams,
@@ -53,6 +53,10 @@ declare interface TwitchWebhookManager {
 
     on(event: 'subscribed', callback: (webhookId: WebhookId) => void): this
 
+    emit(event: 'unsubscribed', webhookId: WebhookId): this
+
+    on(event: 'unsubscribed', callback: (webhookId: WebhookId) => void): this
+
     //Events for specific event types.
     emit(event: 'userFollows', webhookId: WebhookId, payload: WebhookPayload<WebhookType.UserFollows>): boolean;
 
@@ -84,7 +88,7 @@ declare interface TwitchWebhookManager {
 
 }
 
-class TwitchWebhookManager extends EventEmitter {
+class TwitchWebhookManager extends EventEmitter implements IResubscribeable{
     readonly config: TwitchWebhookManagerConfig_Internal;
     renewalInterval: NodeJS.Timeout | undefined;
 
@@ -110,7 +114,7 @@ class TwitchWebhookManager extends EventEmitter {
             if (config.renewalScheduler.getMetaData().runInterval !== Infinity) {
                 this.renewalInterval = setInterval(() => (<WebhookRenewalScheduler>config.renewalScheduler).run(), config.renewalScheduler.getMetaData().runInterval)
             }
-            config.renewalScheduler.setManager(this);
+            config.renewalScheduler.setResubscribeableObject(this);
         }
     }
 
@@ -152,13 +156,26 @@ class TwitchWebhookManager extends EventEmitter {
         this.config.logger.info('Unsubbing from all webhook endpoints');
         let promises = [];
         let webhooks = await this.config.persistenceManager.getAllWebhooks();
+        let webhookIds = webhooks.map((x) => x.id);
+        let finalPromise = new Promise((resolve, _) => {
+            this.on('unsubscribed', (id: WebhookId)=>{
+                webhookIds = webhookIds.filter(x => x!==id);
+                if(webhookIds.length == 0){
+                    resolve();
+                }
+            });
+        });
+
+
         for (let webhook of webhooks) {
             promises.push(this.unsubscribePersistenceObject(webhook)
                 .catch((e) => {
                     this.config.logger.error(`Error while unsubscribing from: ${webhook.id}`, e);
                 }));
         }
+
         await Promise.all(promises);
+        await finalPromise;
     }
 
     public async addUserFollowsSubscription(config: WebhookOptions, subParams: UserFollowsSubParams): Promise<WebhookId> {
@@ -266,8 +283,6 @@ class TwitchWebhookManager extends EventEmitter {
         this.config.logger.debug(`Unsubbing from: `, webhook);
         await this.changeSub(webhook, false);
 
-        await this.config.persistenceManager.deleteWebhook(webhook.id);
-
         //Don't renew anymore
         if (this.config.renewalScheduler) {
             this.config.renewalScheduler.removeFromScheduler(webhook.id);
@@ -369,7 +384,6 @@ class TwitchWebhookManager extends EventEmitter {
                 let webhookId = getIdFromTypeAndParams(Number(type), topicURL.search);
                 let webhook = await this.config.persistenceManager.getWebhookById(webhookId);
 
-                //TODO: Unsubscribing calls this endpoint, so there should be a branch here in this case https://www.w3.org/TR/websub/#x5-3-hub-verifies-intent-of-the-subscriber
                 if (webhook) {
                     if (!originalUrl.searchParams.get("hub.mode") || originalUrl.searchParams.get("hub.mode") === "denied") {
                         res.end();
@@ -380,27 +394,39 @@ class TwitchWebhookManager extends EventEmitter {
                         return;
                     }
 
-                    webhook.subscriptionStart = new Date();
+                    if(originalUrl.searchParams.get("hub.mode") === 'unsubscribe'){
+                        //Confirming unsubscription!
+                        await this.config.persistenceManager.deleteWebhook(webhook.id);
+                        this.config.logger.info(`Confirmed unsubscription from webhook ${webhook.id}`);
 
-                    if (originalUrl.searchParams.get("hub.lease_seconds")) {
-                        webhook.subscriptionEnd = new Date(webhook.subscriptionStart.getTime() + parseInt(<string>originalUrl.searchParams.get("hub.lease_seconds")) * 1000);
+                        res.setHeader("Content-Type", "text/plain");
+                        res.status(200);
+                        res.end(originalUrl.searchParams.get("hub.challenge"));
+
+                        this.emit('unsubscribed', webhook.id);
                     } else {
-                        webhook.subscriptionEnd = new Date(Date.now() + webhook.leaseSeconds * 1000); // Assume lease seconds we sent is respected.
-                    }
+                        webhook.subscriptionStart = new Date();
 
-                    webhook.subscribed = true;
-                    res.setHeader("Content-Type", "text/plain");
-                    res.status(200);
-                    res.end(originalUrl.searchParams.get("hub.challenge"));
+                        if (originalUrl.searchParams.get("hub.lease_seconds")) {
+                            webhook.subscriptionEnd = new Date(webhook.subscriptionStart.getTime() + parseInt(<string>originalUrl.searchParams.get("hub.lease_seconds")) * 1000);
+                        } else {
+                            webhook.subscriptionEnd = new Date(Date.now() + webhook.leaseSeconds * 1000); // Assume lease seconds we sent is respected.
+                        }
 
-                    await this.config.persistenceManager.saveWebhook(webhook);
-                    this.config.logger.info(`Subscription for ${webhook.id} verified!`);
-                    this.config.logger.debug('Subscribed to webhook: ', webhook);
-                    this.emit("subscribed", webhookId);
+                        webhook.subscribed = true;
+                        res.setHeader("Content-Type", "text/plain");
+                        res.status(200);
+                        res.end(originalUrl.searchParams.get("hub.challenge"));
 
-                    if (this.config.renewalScheduler) {
-                        this.config.logger.info(`Adding webhook ${webhook.id} to renewal scheduler`);
-                        this.config.renewalScheduler.addToScheduler(webhook);
+                        await this.config.persistenceManager.saveWebhook(webhook);
+                        this.config.logger.info(`Subscription for ${webhook.id} verified!`);
+                        this.config.logger.debug('Subscribed to webhook: ', webhook);
+                        this.emit("subscribed", webhookId);
+
+                        if (this.config.renewalScheduler) {
+                            this.config.logger.info(`Adding webhook ${webhook.id} to renewal scheduler`);
+                            this.config.renewalScheduler.addToScheduler(webhook);
+                        }
                     }
                 } else {
                     this.config.logger.error(`Got GET for unknown webhook URL: ${topicURL.href}`);

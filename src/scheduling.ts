@@ -5,8 +5,9 @@
 * the deadline and twitch rate in order to better schedule renewals.
 * */
 
-import {TwitchWebhookManager, WebhookId} from "./webhooks";
+import {WebhookId} from "./webhooks";
 import {WebhookPersistenceObject} from "./persistence";
+import EventEmitter = NodeJS.EventEmitter;
 
 type SchedulerMetaData = {
     runInterval: number; // Number of seconds between each run call. Infinity means to never run it.
@@ -16,7 +17,7 @@ type SchedulerMetaData = {
 // If it needs to be renewed again, addToScheduler will be called again.
 // remove from scheduler should stop any renewal from occuring in the future.
 interface WebhookRenewalScheduler {
-    setManager(manager: TwitchWebhookManager): void;
+    setResubscribeableObject(resubscribeable: IResubscribeable): void;
 
     addToScheduler(webhook: WebhookPersistenceObject): void; // Add webhook renewal to scheduler
     removeFromScheduler(webhook: WebhookId): void; // Remove webhook renewal from scheduler
@@ -27,19 +28,23 @@ interface WebhookRenewalScheduler {
     destroy(): Promise<void>; //Stop all scheduling activities
 }
 
+interface IResubscribeable extends EventEmitter {
+    resubscribePersistenceObject(webhook: WebhookPersistenceObject): Promise<void>;
+}
+
 class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
     webhookURLToTimeout: Map<string, NodeJS.Timeout> = new Map<string, NodeJS.Timeout>();
-    manager: TwitchWebhookManager;
+    resubscribeable: IResubscribeable;
 
-    setManager(manager: TwitchWebhookManager) {
-        this.manager = manager;
+    setResubscribeableObject(resubscribeable: IResubscribeable) {
+        this.resubscribeable = resubscribeable;
     }
 
     addToScheduler(webhook: WebhookPersistenceObject): void {
         let resubHandler = () => {
             //TODO: Flesh out error stuff for this
-            this.manager.resubscribePersistenceObject(webhook)
-                .catch((e) => this.manager.emit('error', e, webhook.id));
+            this.resubscribeable.resubscribePersistenceObject(webhook)
+                .catch((e) => this.resubscribeable.emit('error', e, webhook.id));
             this.webhookURLToTimeout.delete(webhook.id);
         };
 
@@ -82,5 +87,6 @@ class BasicWebhookRenewalScheduler implements WebhookRenewalScheduler {
 
 export {
     WebhookRenewalScheduler,
-    BasicWebhookRenewalScheduler
+    BasicWebhookRenewalScheduler,
+    IResubscribeable
 }

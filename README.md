@@ -31,7 +31,7 @@ Run the command
     
     //setup message handler
     webhook.on('message', (webhookId: WebhookId, msg: WebhookPayload<any>) => {
-        console.log(`Got message: ${type} for webhook ${webhookId}, ${JSON.stringify(msg)}`);
+        console.log(`Got message: ${msg.type} for webhook ${webhookId}, ${JSON.stringify(msg)}`);
     });
     
     //Set up error handler
@@ -42,7 +42,7 @@ Run the command
             let webhookId = await webhookManager.addUserFollowsSubscription({
                 leaseSeconds: 6000, // Can be up to 864000 (default, 10 days),
                 secret: 'thisiswebhookspecificsecret' //If omitted, the webhook manager secret is used.
-            }, "1002" /*to_id*/);
+            }, {to_id: "1002"});
             
             /* Code goes here */
             
@@ -72,14 +72,5 @@ then webhooks ***WILL NOT*** be renewed. A simple, default implementation is pro
 after 85% of it's time from start to expiry has occurred. Smarter logic can be substituted by implementing
 the `WebhookRenewalScheduler` interface.
 
-## Example(s)
-
-As of right now, [this repo](https://github.com/Denu8thell/twitch-webhooks-test) is the best example
-I can give of a larger application. The code needs major cleaning up to be readable, but it might be the best bet in terms
-of seeing "working" code. This example takes advantage of persistence using [Sequelize](https://github.com/sequelize/sequelize), which may be of
-interest.
-
 TODO: 
 - More documentation
-- Better typing (enum types and all that for twitch events - need to research the endpoints in practice, since the docs are NOT clear.)
-- Tests (currently working on this)

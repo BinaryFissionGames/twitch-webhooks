@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "prepublishOnly": "npm run clean && npm run build",
-    "clean": "rm -rf ./dist || rd /s /q .\\dist || exit 0",
+    "clean": "rm -rf ./dist || rd /s /q .\\dist",
     "test": "mocha dist/test/test.js",
     "build": "tsc",
     "build-test": "tsc --project test.tsconfig.json"

@@ -1,6 +1,6 @@
 {
   "name": "@binaryfissiongames/twitch-webhooks",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Library to abstract subscribing to the documented Twitch webhook API endpoints, with persistence in mind.",
   "main": "dist/index.js",
   "scripts": {

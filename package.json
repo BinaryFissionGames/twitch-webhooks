@@ -31,7 +31,7 @@
     "dotenv": "^8.2.0",
     "twitch-mock-webhook-hub": "^0.3.8",
     "twitch-oauth-authorization-code-express": "^2.0.0",
-    "mocha": "^7.2.0",
+    "mocha": "^10.2.0",
     "@types/mocha": "^7.0.2"
   }
 }
